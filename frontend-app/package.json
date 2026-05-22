@@ -1,0 +1,29 @@
+{
+  "name": "turulav-frontend-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "TypeScript Redux bundle layered onto the static HTML template.",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "serve": "serve -p 5173 ..",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "msw:init": "msw init .. --save"
+  },
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "msw": "^2.3.0",
+    "serve": "^14.2.3",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  },
+  "msw": {
+    "workerDirectory": [
+      ".."
+    ]
+  }
+}

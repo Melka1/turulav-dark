@@ -1,0 +1,12 @@
+.DS_Store
+node_modules
+.env
+.env.local
+*.log
+*.tsbuildinfo
+
+# Build output emitted by frontend-app/ Vite
+assets/js/app.bundle.js
+assets/js/app.bundle.js.map
+assets/js/app.*.js
+assets/js/app.*.js.map

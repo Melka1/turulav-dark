@@ -169,7 +169,7 @@ function cardHtml(item: ProfileWithUserDto): string {
   const activeText = item.isOnline
     ? 'Active now'
     : escapeHtml(formatRelativeActive(item.lastActiveAt));
-  const href = `members/${encodeURIComponent(item.userId)}`;
+  const href = `/members/${encodeURIComponent(item.userId)}`;
   return `
     <div class="col">
       <div class="lab-item member-item style-1 style-2" data-app-user-id="${escapeHtml(item.userId)}">

@@ -61,6 +61,15 @@ export type ProfileDto = {
 export type PublicProfileDto = Omit<ProfileDto, 'address' | 'visibility'>;
 
 /**
+ * Body for `PATCH /profiles/me`. Section-by-section edits send only the
+ * fields they touch; server-controlled fields (`userId`, timestamps,
+ * `completionScore`) are excluded.
+ */
+export type UpdateMyProfileBody = Partial<
+  Omit<ProfileDto, 'userId' | 'completionScore' | 'createdAt' | 'updatedAt'>
+>;
+
+/**
  * Shape of each item in `GET /profiles/search`. The backend flattens profile
  * fields together with a handful of user/derived fields (`username`,
  * `isOnline`, `lastActiveAt`, `tier`, `age`, `ageBand`) at the top level —

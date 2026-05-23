@@ -4,6 +4,7 @@ import { groupsApi } from '@/api/groupsApi';
 import { profilesApi } from '@/api/profilesApi';
 import { usersApi } from '@/api/usersApi';
 import { bindActivityTab } from '@/pages/activity';
+import { bindOwnProfileEditors } from '@/pages/profileEdit';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { signedOut } from '@/slices/authSlice';
 import {
@@ -78,8 +79,20 @@ async function renderOwnProfile(ctx: PageContext): Promise<void> {
     const me = await ctx
       .dispatch(usersApi.endpoints.getMe.initiate())
       .unwrap();
-    renderHeader(toHeaderView(me, me.profile));
-    renderProfileTab(me.profile, { hideAddress: false });
+    let currentProfile = me.profile;
+    renderHeader(toHeaderView(me, currentProfile));
+    renderProfileTab(currentProfile, { hideAddress: false });
+    bindOwnProfileEditors({
+      ctx,
+      getProfile: () => currentProfile,
+      setProfile: (next) => {
+        currentProfile = next;
+      },
+      rerenderReadOnly: () => {
+        renderHeader(toHeaderView(me, currentProfile));
+        renderProfileTab(currentProfile, { hideAddress: false });
+      },
+    });
     void bindActivityTab(ctx, me.id, me.id);
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
@@ -111,7 +124,7 @@ async function renderPublicProfile(
     if (me && me.id === userId) {
       // Viewing your own profile via someone-else's-shareable URL — bounce to
       // the canonical self-view so edit controls are visible.
-      window.location.replace('members/me');
+      window.location.replace('/members/me');
       return;
     }
 
@@ -678,7 +691,7 @@ function friendCardHtml(item: FriendItemDto): string {
   const activeText = item.isOnline
     ? 'Active now'
     : escapeHtml(formatRelativeActive(item.lastActiveAt));
-  const href = `members/${encodeURIComponent(item.id)}`;
+  const href = `/members/${encodeURIComponent(item.id)}`;
   return `
     <div class="col-lg-3 col-md-4 col-6">
       <div class="lab-item member-item style-1" data-app-user-id="${escapeHtml(item.id)}">

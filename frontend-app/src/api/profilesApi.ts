@@ -2,9 +2,11 @@ import { api } from './api';
 import { unwrap } from './baseQuery';
 import type {
   ApiSuccessEnvelope,
+  ProfileDto,
   PublicProfileDto,
   SearchProfilesQuery,
   SearchProfilesResponseData,
+  UpdateMyProfileBody,
 } from '@/types/api';
 
 function buildQueryString(params: SearchProfilesQuery): string {
@@ -34,6 +36,16 @@ export const profilesApi = api.injectEndpoints({
       transformResponse: (response: ApiSuccessEnvelope<PublicProfileDto>) =>
         unwrap(response),
       providesTags: (_result, _err, userId) => [{ type: 'Profile', id: userId }],
+    }),
+    updateMyProfile: build.mutation<ProfileDto, UpdateMyProfileBody>({
+      query: (body) => ({
+        url: '/profiles/me',
+        method: 'PATCH',
+        body,
+      }),
+      transformResponse: (response: ApiSuccessEnvelope<ProfileDto>) =>
+        unwrap(response),
+      invalidatesTags: ['Me', 'Search'],
     }),
   }),
   overrideExisting: false,

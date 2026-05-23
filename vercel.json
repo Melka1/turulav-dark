@@ -4,6 +4,6 @@
   "outputDirectory": ".",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/members/:uuid", "destination": "/profile.html" }
+    { "source": "/members/:uuid", "destination": "/profile" }
   ]
 }

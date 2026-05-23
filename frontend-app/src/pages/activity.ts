@@ -209,7 +209,7 @@ async function populateComposerIdentity(
     );
     if (nameLink) {
       nameLink.textContent = displayName;
-      nameLink.href = `members/${me.id}`;
+      nameLink.href = `/members/${me.id}`;
     }
 
     const input = composer.querySelector<HTMLInputElement>(

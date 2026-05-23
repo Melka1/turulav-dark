@@ -25,6 +25,7 @@ const rawBaseQuery = fetchBaseQuery({
   prepareHeaders: (headers, { getState }) => {
     const token = (getState() as RootState).auth.accessToken;
     if (token) headers.set('Authorization', `Bearer ${token}`);
+    headers.set('ngrok-skip-browser-warning', '1');
     return headers;
   },
 });

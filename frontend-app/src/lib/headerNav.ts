@@ -18,6 +18,11 @@ const SUBMENU_AUTH_LINKS = [
   'signup.html',
 ] as const;
 
+function hrefBasename(href: string): string {
+  const path = href.split('?')[0]?.split('#')[0] ?? '';
+  return path.split('/').pop() ?? '';
+}
+
 export function applyHeaderNav(state: RootState, dispatch: AppDispatch): void {
   const isAuthed = state.auth.status === 'authenticated';
   if (isAuthed) {
@@ -60,7 +65,7 @@ function switchToAuthed(accessToken: string | null, dispatch: AppDispatch): void
     .querySelectorAll<HTMLLIElement>('ul.submenu li')
     .forEach((li) => {
       const href = li.querySelector('a')?.getAttribute('href') ?? '';
-      if ((SUBMENU_AUTH_LINKS as readonly string[]).includes(href)) {
+      if ((SUBMENU_AUTH_LINKS as readonly string[]).includes(hrefBasename(href))) {
         li.style.display = 'none';
       }
     });

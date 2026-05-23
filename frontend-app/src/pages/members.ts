@@ -164,15 +164,15 @@ function renderGrid(grid: HTMLElement, items: ProfileWithUserDto[]): void {
 }
 
 function cardHtml(item: ProfileWithUserDto): string {
-  const name = escapeHtml(item.displayName || item.user.username);
+  const name = escapeHtml(item.displayName || item.username);
   const avatar = item.avatarUrl ? escapeHtml(item.avatarUrl) : FALLBACK_AVATAR;
-  const activeText = item.user.isOnline
+  const activeText = item.isOnline
     ? 'Active now'
-    : escapeHtml(formatRelativeActive(item.user.lastActiveAt));
-  const href = `members/${encodeURIComponent(item.user.id)}`;
+    : escapeHtml(formatRelativeActive(item.lastActiveAt));
+  const href = `members/${encodeURIComponent(item.userId)}`;
   return `
     <div class="col">
-      <div class="lab-item member-item style-1 style-2" data-app-user-id="${escapeHtml(item.user.id)}">
+      <div class="lab-item member-item style-1 style-2" data-app-user-id="${escapeHtml(item.userId)}">
         <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
           <div class="lab-thumb">
             <img src="${avatar}" alt="${name}">

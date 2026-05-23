@@ -61,10 +61,25 @@ export type ProfileDto = {
 export type PublicProfileDto = Omit<ProfileDto, 'address' | 'visibility'>;
 
 /**
- * Shape of each item in `GET /profiles/search`. Wider than `PublicProfileDto`:
- * the backend currently inlines the full profile plus a nested `user`.
+ * Shape of each item in `GET /profiles/search`. The backend flattens profile
+ * fields together with a handful of user/derived fields (`username`,
+ * `isOnline`, `lastActiveAt`, `tier`, `age`, `ageBand`) at the top level —
+ * there is no nested `user` object on the wire.
  */
-export type ProfileWithUserDto = ProfileDto & { user: UserDto };
+export type ProfileWithUserDto = Omit<
+  PublicProfileDto,
+  'dob' | 'completionScore' | 'createdAt' | 'updatedAt'
+> & {
+  username: string;
+  isOnline: boolean | null;
+  lastActiveAt: string | null;
+  tier?: 'self' | 'friend' | 'member';
+  age?: number | null;
+  ageBand?: string | null;
+  activityBucket?: string | null;
+  email?: string | null;
+  completionScore?: number | null;
+};
 
 export type SearchProfilesQuery = {
   q?: string;

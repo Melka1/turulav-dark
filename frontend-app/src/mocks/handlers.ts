@@ -576,10 +576,16 @@ export const handlers = [
 
     const start = (page - 1) * limit;
     const slice = matches.slice(start, start + limit);
-    const items: ProfileWithUserDto[] = slice.map((r) => ({
-      ...r.profile,
-      user: r.user,
-    }));
+    const items: ProfileWithUserDto[] = slice.map((r) => {
+      const { dob: _dob, visibility: _vis, createdAt: _ca, updatedAt: _ua, completionScore, ...rest } = r.profile;
+      return {
+        ...rest,
+        username: r.user.username,
+        isOnline: r.user.isOnline,
+        lastActiveAt: r.user.lastActiveAt,
+        completionScore,
+      };
+    });
     const data: SearchProfilesResponseData = {
       items,
       total: matches.length,

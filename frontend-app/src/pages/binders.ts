@@ -7,3 +7,5 @@ import './login';
 import './profile';
 import './members';
 import './groups';
+import './blog';
+import './blogSingle';

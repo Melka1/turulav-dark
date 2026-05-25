@@ -66,7 +66,7 @@ const bindMembers: PageBinder = async (ctx) => {
       const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
       if (err?.code === 'INVALID_CREDENTIALS') {
         ctx.dispatch(signedOut());
-        window.location.replace('login.html?next=members.html');
+        window.location.replace('/login.html?next=/members');
         return;
       }
       renderError(grid, err, ctx);

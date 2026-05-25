@@ -4,6 +4,8 @@ import { readCurrentPage, runPage } from '@/pages';
 import { enforceAuthGuard } from '@/lib/authGuard';
 import { applyHeaderNav } from '@/lib/headerNav';
 import { applyPasswordToggles } from '@/lib/passwordToggle';
+import { mountToastContainer } from '@/lib/toast';
+import { startTokenRefreshScheduler } from '@/lib/tokenRefreshScheduler';
 import { authApi } from '@/api/authApi';
 import { signedOut, tokensRefreshed } from '@/slices/authSlice';
 import '@/pages/binders';
@@ -39,6 +41,7 @@ async function refreshIfExpired(): Promise<void> {
     store.dispatch(
       tokensRefreshed({
         accessToken: result.session.accessToken,
+        refreshToken: result.session.refreshToken,
         expiresAt: newExpiresAt,
       }),
     );
@@ -59,7 +62,10 @@ async function boot(): Promise<void> {
 
   window.__TURULAV__ = { store, env };
 
+  mountToastContainer();
+
   await refreshIfExpired();
+  startTokenRefreshScheduler();
 
   const page = readCurrentPage();
   console.info(`[boot] page="${page}" mode=${env.mode} mocks=${env.useMocks}`);

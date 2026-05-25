@@ -17,7 +17,7 @@ import {
 import { signedIn, signedOut } from '@/slices/authSlice';
 import type { SignupRequest } from '@/types/api';
 
-const POST_VERIFY_DESTINATION = 'profile.html';
+const POST_VERIFY_DESTINATION = '/profile.html';
 
 const SUCCESS_VIEW = `
   <div data-app-target="signup-success" class="signup-success">
@@ -124,7 +124,7 @@ function renderVerificationError(message: string): void {
   wrapper.innerHTML = `
     <h3 class="title">Email confirmed</h3>
     <p>${message}</p>
-    <p><a href="login.html">Go to login</a></p>
+    <p><a href="/login.html">Go to login</a></p>
   `;
 }
 

@@ -45,7 +45,6 @@ import type {
   CommentDto,
   CommentsListResponseData,
   CreateCommentRequest,
-  CreatePostRequest,
   FriendItemDto,
   FriendshipStatus,
   FriendshipStatusDto,
@@ -53,6 +52,7 @@ import type {
   GroupDto,
   LoginRequest,
   LoginResponseData,
+  PostAttachmentDto,
   RefreshRequest,
   RefreshResponseData,
   PostAudience,
@@ -72,6 +72,7 @@ import type {
   SignupResponseData,
   UpdateCommentRequest,
   UpdatePostRequest,
+  UserMediaItemDto,
   UserWithProfileDto,
 } from '@/types/api';
 
@@ -160,6 +161,38 @@ function yearsSince(dob: string): number {
   if (Number.isNaN(d.getTime())) return 0;
   const diff = Date.now() - d.getTime();
   return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
+}
+
+// ============ Media helpers ============
+
+const MOCK_PHOTOS = Array.from({ length: 20 }, (_, i) => {
+  const idx = String(i + 1).padStart(2, '0');
+  return `/assets/images/member/${idx}.jpg`;
+});
+
+function mockMediaFor(userId: string): UserMediaItemDto[] {
+  // Deterministic per-user slice so reloads stay stable.
+  const seed = Array.from(userId).reduce(
+    (acc, ch) => (acc * 31 + ch.charCodeAt(0)) >>> 0,
+    0,
+  );
+  const count = 8 + (seed % 8); // 8..15 items
+  const items: UserMediaItemDto[] = [];
+  for (let i = 0; i < count; i++) {
+    const url = MOCK_PHOTOS[(seed + i * 7) % MOCK_PHOTOS.length]!;
+    items.push({
+      id: `mock-media-${userId}-${i}`,
+      kind: 'photo',
+      url,
+      thumbnailUrl: url,
+      width: 800,
+      height: 800,
+      durationSeconds: null,
+      caption: null,
+      createdAt: new Date(Date.now() - i * 3_600_000).toISOString(),
+    });
+  }
+  return items;
 }
 
 // ============ Activity helpers ============
@@ -1065,19 +1098,68 @@ export const handlers = [
     return ok(path, data);
   }),
 
+  // ============ User media (Photos + Media tabs) ============
+  http.get(url('/users/:userId/media'), ({ params, request }) => {
+    const userId = String(params.userId);
+    const path = `/api/v1/users/${userId}/media`;
+    const auth = requireViewer(request, path);
+    if (!auth.ok) return auth.response;
+    const viewer = auth.viewer;
+
+    const target = userId === 'me' ? viewer : findById(userId);
+    if (!target) {
+      return nestError(404, 'NotFoundException', 'User not found', path);
+    }
+
+    const query = new URL(request.url).searchParams;
+    const kindRaw = query.get('kind');
+    const kind = kindRaw === 'photo' || kindRaw === 'video' ? kindRaw : null;
+    const limit = Math.min(
+      50,
+      Math.max(1, numberOrNull(query.get('limit')) ?? 20),
+    );
+
+    const all = mockMediaFor(target.user.id);
+    const filtered = kind ? all.filter((m) => m.kind === kind) : all;
+    const items = filtered.slice(0, limit);
+    return ok(path, { items, nextCursor: null });
+  }),
+
   // ============ Posts CRUD ============
   http.post(url('/posts'), async ({ request }) => {
     const path = '/api/v1/posts';
     const auth = requireViewer(request, path);
     if (!auth.ok) return auth.response;
     const viewer = auth.viewer;
-    const body = (await request.json().catch(() => null)) as
-      | CreatePostRequest
-      | null;
-    if (!body || typeof body.body !== 'string' || body.body.trim() === '') {
-      return nestError(400, 'Bad Request', 'body must not be empty', path);
+
+    const form = await request.formData().catch(() => null);
+    if (!form) {
+      return nestError(
+        400,
+        'Bad Request',
+        'Body must be multipart/form-data.',
+        path,
+      );
     }
-    if (body.body.length > 5000) {
+    const bodyText = String(form.get('body') ?? '');
+    const audienceRaw = String(form.get('audience') ?? '');
+    const groupIdRaw = form.get('groupId');
+    const groupId = typeof groupIdRaw === 'string' && groupIdRaw !== ''
+      ? groupIdRaw
+      : null;
+    const files = form
+      .getAll('files')
+      .filter((v): v is File => v instanceof File);
+
+    if (bodyText.trim() === '' && files.length === 0) {
+      return nestError(
+        400,
+        'Bad Request',
+        'body or files must be provided',
+        path,
+      );
+    }
+    if (bodyText.length > 5000) {
       return nestError(
         400,
         'Bad Request',
@@ -1085,11 +1167,12 @@ export const handlers = [
         path,
       );
     }
-    if (!POST_AUDIENCES.includes(body.audience)) {
+    if (!POST_AUDIENCES.includes(audienceRaw as PostAudience)) {
       return nestError(400, 'Bad Request', 'invalid audience', path);
     }
-    if (body.audience === 'group') {
-      if (!body.groupId) {
+    const audience = audienceRaw as PostAudience;
+    if (audience === 'group') {
+      if (!groupId) {
         return nestError(
           400,
           'Bad Request',
@@ -1097,10 +1180,10 @@ export const handlers = [
           path,
         );
       }
-      if (!findGroupById(body.groupId)) {
+      if (!findGroupById(groupId)) {
         return nestError(404, 'NotFoundException', 'Group not found', path);
       }
-      if (!membershipFor(viewer.user.id, body.groupId)) {
+      if (!membershipFor(viewer.user.id, groupId)) {
         return nestError(
           403,
           'ForbiddenException',
@@ -1108,7 +1191,7 @@ export const handlers = [
           path,
         );
       }
-    } else if (body.groupId) {
+    } else if (groupId) {
       return nestError(
         400,
         'Bad Request',
@@ -1117,15 +1200,25 @@ export const handlers = [
       );
     }
 
+    const attachments: PostAttachmentDto[] = files.map((file, index) => ({
+      mediaId: `mock-media-${crypto.randomUUID()}`,
+      kind: file.type.startsWith('video/') ? 'video' : 'photo',
+      url: URL.createObjectURL(file),
+      thumbnailUrl: null,
+      width: null,
+      height: null,
+      displayOrder: index,
+    }));
+
     const now = new Date().toISOString();
     const post: StoredPost = {
       id: makePostId(),
       authorId: viewer.user.id,
-      audience: body.audience,
-      groupId: body.audience === 'group' ? body.groupId ?? null : null,
-      body: body.body,
-      attachments: [],
-      mentions: extractMentions(body.body).filter(
+      audience,
+      groupId: audience === 'group' ? groupId : null,
+      body: bodyText,
+      attachments,
+      mentions: extractMentions(bodyText).filter(
         (m) => m.userId !== viewer.user.id,
       ),
       editedAt: null,

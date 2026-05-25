@@ -14,8 +14,12 @@ const pageAuth: Record<string, AuthRequirement> = {
   groups: 'authenticated',
 };
 
-const POST_LOGIN_DESTINATION = 'profile.html';
-const LOGIN_PAGE = 'login.html';
+// Root-absolute so the redirect target doesn't depend on the current path —
+// e.g. /members/<uuid> rewrites to profile.html but stays in /members/* in the
+// URL bar, so a relative 'login.html' from there resolves to /members/login,
+// which the vercel.json rewrite then sends back to profile → redirect loop.
+const POST_LOGIN_DESTINATION = '/profile.html';
+const LOGIN_PAGE = '/login.html';
 
 /**
  * Returns `true` if the page should continue rendering. Returns `false` (and

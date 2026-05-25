@@ -65,7 +65,16 @@ export const activityApi = api.injectEndpoints({
     }),
 
     createPost: build.mutation<PostDto, CreatePostRequest>({
-      query: (body) => ({ url: '/posts', method: 'POST', body }),
+      query: ({ body, audience, groupId, files }) => {
+        const fd = new FormData();
+        fd.set('body', body);
+        fd.set('audience', audience);
+        if (groupId) fd.set('groupId', groupId);
+        if (files) {
+          for (const file of files) fd.append('files', file);
+        }
+        return { url: '/posts', method: 'POST', body: fd };
+      },
       transformResponse: (response: ApiSuccessEnvelope<PostDto>) =>
         unwrap(response),
       invalidatesTags: ['ActivityFeed'],

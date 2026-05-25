@@ -295,6 +295,51 @@ export type FriendRequestDto = {
   createdAt: string;
 };
 
+// ============ Blocks ============
+
+export type BlockUserBody = {
+  targetUserId: string;
+  reason?: string;
+};
+
+/** Shape of each row from `GET /blocks`. */
+export type BlockedUserDto = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  blockedAt: string;
+  reason: string | null;
+};
+
+// ============ Media (user gallery) ============
+// `GET /users/:userId/media` — see docs/media/README.md.
+
+export type MediaKind = 'photo' | 'video';
+
+export type UserMediaItemDto = {
+  id: string;
+  kind: MediaKind;
+  url: string;
+  thumbnailUrl: string | null;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  caption: string | null;
+  createdAt: string;
+};
+
+export type UserMediaListQuery = {
+  kind?: MediaKind;
+  cursor?: string;
+  limit?: number;
+};
+
+export type UserMediaListResponseData = {
+  items: UserMediaItemDto[];
+  nextCursor: string | null;
+};
+
 // ============ Activity (posts, reactions, comments, favorites) ============
 // See docs/activity/README.md for the spec.
 
@@ -381,7 +426,7 @@ export type CreatePostRequest = {
   body: string;
   audience: PostAudience;
   groupId?: string;
-  attachmentMediaIds?: string[];
+  files?: File[];
 };
 
 export type UpdatePostRequest = {
@@ -422,4 +467,76 @@ export type UpdateCommentRequest = {
 
 export type ReactionRequest = {
   type: ReactionType;
+};
+
+// ============ Blog ============
+// Members-only: comments reuse the activity CommentDto / CommentsListQuery /
+// CommentsListResponseData / CreateCommentRequest / UpdateCommentRequest
+// shapes. `CommentDto.postId` carries the blog post id when scoped to blog
+// endpoints.
+
+export type BlogPostStatus = 'draft' | 'published' | 'archived';
+
+export type BlogTagDto = {
+  slug: string;
+  name: string;
+};
+
+export type BlogCoverDto = {
+  imageUrl: string | null;
+  videoUrl: string | null;
+};
+
+export type BlogBodyImageDto = {
+  url: string;
+  alt: string | null;
+  caption: string | null;
+};
+
+export type BlogBodyBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'quote'; text: string; attribution: string | null }
+  | { type: 'list'; style: 'numbered' | 'bulleted'; items: string[] }
+  | { type: 'image'; images: BlogBodyImageDto[] }
+  | { type: 'heading'; level?: number; text: string };
+
+export type BlogPostDto = {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  body: BlogBodyBlock[];
+  author: PostAuthorDto;
+  cover: BlogCoverDto;
+  tags: BlogTagDto[];
+  status: BlogPostStatus;
+  likeCount: number;
+  commentCount: number;
+  viewerLiked: boolean;
+  publishedAt: string | null;
+  editedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BlogListQuery = {
+  q?: string;
+  tag?: string;
+  authorId?: string;
+  status?: BlogPostStatus;
+  sort?: 'recent' | 'popular';
+  page?: number;
+  limit?: number;
+};
+
+export type BlogListResponseData = {
+  items: BlogPostDto[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export type BlogLikeResponseData = {
+  likeCount: number;
+  viewerLiked: boolean;
 };

@@ -67,7 +67,7 @@ const bindGroups: PageBinder = async (ctx) => {
       const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
       if (err?.code === 'INVALID_CREDENTIALS') {
         ctx.dispatch(signedOut());
-        window.location.replace('login.html?next=active-group.html');
+        window.location.replace('/login.html?next=/active-group');
         return;
       }
       renderError(grid, err, ctx);

@@ -69,9 +69,14 @@ const authSlice = createSlice({
     },
     tokensRefreshed(
       state,
-      action: PayloadAction<{ accessToken: string; expiresAt: string }>,
+      action: PayloadAction<{
+        accessToken: string;
+        refreshToken: string;
+        expiresAt: string;
+      }>,
     ) {
       state.accessToken = action.payload.accessToken;
+      state.refreshToken = action.payload.refreshToken;
       state.expiresAt = action.payload.expiresAt;
       persist(state);
     },

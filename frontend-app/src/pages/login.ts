@@ -14,7 +14,7 @@ function nextDestination(): string {
   const params = new URLSearchParams(window.location.search);
   const next = params.get('next');
   if (next && /^\/?[\w.\-/]+$/.test(next)) return next;
-  return 'profile.html';
+  return '/profile.html';
 }
 
 const bindLogin: PageBinder = ({ dispatch }) => {

@@ -152,27 +152,78 @@ function prepareComposer(root: HTMLElement, actx: ActivityContext): void {
     <option value="private">Private</option>
   `;
 
+  const mediaInput = composer.querySelector<HTMLInputElement>(
+    '.image-video input[type="file"]',
+  );
+  const attachInput = composer.querySelector<HTMLInputElement>(
+    '.attach-file input[type="file"]',
+  );
+  if (mediaInput) {
+    mediaInput.multiple = true;
+    mediaInput.accept = 'image/*,video/*';
+  }
+  if (attachInput) {
+    attachInput.multiple = true;
+  }
+
+  const previewList = ensureAttachmentPreview(form);
+  const fileInputs = [mediaInput, attachInput].filter(
+    (el): el is HTMLInputElement => el !== null,
+  );
+  const selectedFiles: File[] = [];
+  fileInputs.forEach((el) => {
+    el.addEventListener('change', () => {
+      if (el.files) {
+        for (const file of Array.from(el.files)) selectedFiles.push(file);
+      }
+      // Reset so picking the same file again still fires `change`.
+      el.value = '';
+      renderAttachmentPreview(previewList, selectedFiles);
+    });
+  });
+  previewList.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const trigger = target?.closest<HTMLElement>(
+      '[data-app-action="remove-attachment"]',
+    );
+    if (!trigger) return;
+    event.preventDefault();
+    const index = Number(trigger.dataset.appIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= selectedFiles.length) {
+      return;
+    }
+    selectedFiles.splice(index, 1);
+    renderAttachmentPreview(previewList, selectedFiles);
+  });
+
   void populateComposerIdentity(composer, actx);
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const body = input.value.trim();
-    if (body.length === 0) return;
+    if (body.length === 0 && selectedFiles.length === 0) return;
     const audience = audienceSelect.value as PostAudience;
+    const filesSnapshot = selectedFiles.slice();
     submitButton.disabled = true;
     void actx.ctx
       .dispatch(
-        activityApi.endpoints.createPost.initiate({ body, audience }),
+        activityApi.endpoints.createPost.initiate({
+          body,
+          audience,
+          ...(filesSnapshot.length > 0 ? { files: filesSnapshot } : {}),
+        }),
       )
       .unwrap()
       .then(() => {
         input.value = '';
+        selectedFiles.length = 0;
+        renderAttachmentPreview(previewList, selectedFiles);
       })
       .catch((raw) => {
         const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
         if (err?.code === 'INVALID_CREDENTIALS') {
           actx.ctx.dispatch(signedOut());
-          window.location.replace('login.html');
+          window.location.replace('/login.html');
           return;
         }
         window.alert(err?.message ?? 'Could not create post.');
@@ -182,6 +233,70 @@ function prepareComposer(root: HTMLElement, actx: ActivityContext): void {
         void refreshFeed(root, actx);
       });
   });
+}
+
+function ensureAttachmentPreview(form: HTMLFormElement): HTMLUListElement {
+  const existing = form.querySelector<HTMLUListElement>(
+    '[data-app-target="attachment-preview"]',
+  );
+  if (existing) return existing;
+  const list = document.createElement('ul');
+  list.dataset.appTarget = 'attachment-preview';
+  list.style.cssText =
+    'list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px;';
+  form.appendChild(list);
+  return list;
+}
+
+const previewObjectUrls = new WeakMap<HTMLUListElement, string[]>();
+
+function renderAttachmentPreview(
+  list: HTMLUListElement,
+  files: File[],
+): void {
+  for (const url of previewObjectUrls.get(list) ?? []) URL.revokeObjectURL(url);
+  previewObjectUrls.set(list, []);
+
+  if (files.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  const urls: string[] = [];
+  list.innerHTML = files
+    .map((f, index) => {
+      const removeButton = `
+        <button type="button" data-app-action="remove-attachment" data-app-index="${index}"
+          aria-label="Remove ${escapeHtml(f.name)}"
+          style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,0.65);color:#fff;font-size:14px;line-height:18px;cursor:pointer;padding:0;">
+          &times;
+        </button>
+      `;
+      const isImage = f.type.startsWith('image/');
+      const isVideo = f.type.startsWith('video/');
+      if (isImage || isVideo) {
+        const objectUrl = URL.createObjectURL(f);
+        urls.push(objectUrl);
+        const media = isImage
+          ? `<img src="${escapeHtml(objectUrl)}" alt="${escapeHtml(f.name)}"
+              style="width:100%;height:100%;object-fit:cover;display:block;">`
+          : `<video src="${escapeHtml(objectUrl)}" muted preload="metadata"
+              style="width:100%;height:100%;object-fit:cover;display:block;background:#000;"></video>`;
+        return `
+          <li style="position:relative;width:96px;height:96px;border-radius:8px;overflow:hidden;background:#1f1418;">
+            ${media}
+            ${removeButton}
+          </li>
+        `;
+      }
+      return `
+        <li style="position:relative;padding:4px 28px 4px 10px;border-radius:12px;background:#1f1418;font-size:12px;opacity:0.9;">
+          ${escapeHtml(f.name)}
+          ${removeButton}
+        </li>
+      `;
+    })
+    .join('');
+  previewObjectUrls.set(list, urls);
 }
 
 async function populateComposerIdentity(
@@ -222,7 +337,7 @@ async function populateComposerIdentity(
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'INVALID_CREDENTIALS') {
       actx.ctx.dispatch(signedOut());
-      window.location.replace('login.html');
+      window.location.replace('/login.html');
     }
   }
 }
@@ -331,7 +446,7 @@ async function refreshFeed(
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'INVALID_CREDENTIALS') {
       actx.ctx.dispatch(signedOut());
-      window.location.replace('login.html');
+      window.location.replace('/login.html');
       return;
     }
     console.error('[activity] feed load failed', err ?? raw);

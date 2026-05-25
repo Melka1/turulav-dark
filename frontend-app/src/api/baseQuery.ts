@@ -61,7 +61,11 @@ async function refreshAccessToken(
       Date.now() + session.expiresIn * 1000,
     ).toISOString();
     api.dispatch(
-      tokensRefreshed({ accessToken: session.accessToken, expiresAt }),
+      tokensRefreshed({
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAt,
+      }),
     );
     return session.accessToken;
   })().finally(() => {

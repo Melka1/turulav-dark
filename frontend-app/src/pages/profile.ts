@@ -1,12 +1,16 @@
 import { parseApiError } from '@/api/baseQuery';
+import { blocksApi } from '@/api/blocksApi';
 import { friendsApi } from '@/api/friendsApi';
 import { groupsApi } from '@/api/groupsApi';
 import { profilesApi } from '@/api/profilesApi';
 import { usersApi } from '@/api/usersApi';
 import { bindActivityTab } from '@/pages/activity';
+import { bindProfileMedia } from '@/pages/profileMedia';
 import { bindOwnProfileEditors } from '@/pages/profileEdit';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { signedOut } from '@/slices/authSlice';
+import { showConfirm } from '@/lib/confirmModal';
+import { showToast } from '@/lib/toast';
 import {
   calculateAge,
   escapeHtml,
@@ -48,6 +52,11 @@ const SELF_SENTINEL = 'me';
 const bindProfile: PageBinder = async (ctx) => {
   const targetUserId = readTargetUserId();
 
+  // Mask the template's hardcoded "William Smith / 27-02-1996 / …" values
+  // with shimmer placeholders before any fetch, so first-load doesn't briefly
+  // flash someone else's data.
+  showProfileShimmer();
+
   if (targetUserId !== null && targetUserId !== SELF_SENTINEL) {
     await renderPublicProfile(ctx, targetUserId);
     return;
@@ -55,6 +64,86 @@ const bindProfile: PageBinder = async (ctx) => {
 
   await renderOwnProfile(ctx);
 };
+
+const SHIMMER_STYLE_ID = 'app-shimmer-style';
+
+function ensureShimmerStyle(): void {
+  if (document.getElementById(SHIMMER_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = SHIMMER_STYLE_ID;
+  style.textContent = `
+    .app-shimmer {
+      display: inline-block;
+      height: 0.85em;
+      vertical-align: middle;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(255, 255, 255, 0.14) 50%,
+        rgba(255, 255, 255, 0.05) 100%
+      );
+      background-size: 200% 100%;
+      animation: app-shimmer-slide 1.4s ease-in-out infinite;
+    }
+    .app-shimmer.block {
+      display: block;
+      height: 0.9em;
+      margin-bottom: 8px;
+    }
+    .app-shimmer.block:last-child { margin-bottom: 0; }
+    @keyframes app-shimmer-slide {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function shimmerSpan(width: string): string {
+  return `<span class="app-shimmer" style="width:${width};"></span>`;
+}
+
+function showProfileShimmer(): void {
+  ensureShimmerStyle();
+
+  const crumb = document.querySelector<HTMLElement>(
+    '.page-header-section .breadcrumb li.active',
+  );
+  if (crumb) crumb.innerHTML = shimmerSpan('140px');
+
+  const header = document.querySelector<HTMLElement>(
+    '.member-profile .profile-item:not(.d-none)',
+  );
+  if (header) {
+    const nameNode = header.querySelector<HTMLElement>('.profile-name h4');
+    if (nameNode) nameNode.innerHTML = shimmerSpan('200px');
+    const activeNode = header.querySelector<HTMLElement>('.profile-name p');
+    if (activeNode) activeNode.innerHTML = shimmerSpan('120px');
+  }
+
+  const tab = document.querySelector<HTMLElement>('#profile.tab-pane');
+  if (!tab) return;
+
+  tab.querySelectorAll<HTMLElement>('.info-card .info-details').forEach(
+    (el, idx) => {
+      // Vary widths slightly so the placeholder row doesn't read like a table.
+      const width = `${90 + ((idx * 37) % 90)}px`;
+      el.innerHTML = shimmerSpan(width);
+    },
+  );
+
+  tab
+    .querySelectorAll<HTMLElement>('.info-card .info-card-content > p')
+    .forEach((p) => {
+      p.innerHTML = `
+        <span class="app-shimmer block" style="width:100%;"></span>
+        <span class="app-shimmer block" style="width:96%;"></span>
+        <span class="app-shimmer block" style="width:88%;"></span>
+        <span class="app-shimmer block" style="width:62%;"></span>
+      `;
+    });
+}
 
 function readTargetUserId(): string | null {
   // Pretty form: /members/<uuid> or /members/me (requires a server-side
@@ -74,6 +163,7 @@ function readTargetUserId(): string | null {
 
 async function renderOwnProfile(ctx: PageContext): Promise<void> {
   hideFriendActionForSelf();
+  hideBlockUserForSelf();
 
   try {
     const me = await ctx
@@ -94,11 +184,12 @@ async function renderOwnProfile(ctx: PageContext): Promise<void> {
       },
     });
     void bindActivityTab(ctx, me.id, me.id);
+    void bindProfileMedia(ctx, me.id, me.id);
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'INVALID_CREDENTIALS') {
       ctx.dispatch(signedOut());
-      window.location.replace('login.html');
+      window.location.replace('/login.html');
       return;
     }
     console.error('[profile] /users/me failed', err ?? raw);
@@ -137,8 +228,9 @@ async function renderPublicProfile(
 
     renderHeader(toPublicHeaderView(user, profile));
     renderProfileTab(profile, { hideAddress: true });
-    void bindFriendAction(ctx, userId);
+    void bindRelationshipActions(ctx, userId);
     void bindActivityTab(ctx, userId, me?.id ?? null);
+    void bindProfileMedia(ctx, userId, me?.id ?? null);
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'INVALID_CREDENTIALS') {
@@ -146,7 +238,7 @@ async function renderPublicProfile(
       const next = encodeURIComponent(
         window.location.pathname + window.location.search,
       );
-      window.location.replace(`login.html?next=${next}`);
+      window.location.replace(`/login.html?next=${next}`);
       return;
     }
     if (err?.code === 'NOT_FOUND') {
@@ -259,6 +351,13 @@ function hideFriendActionForSelf(): void {
   if (li) li.style.display = 'none';
 }
 
+function hideBlockUserForSelf(): void {
+  const li = document.querySelector<HTMLElement>(
+    '[data-app-target="block-user-li"]',
+  );
+  if (li) li.style.display = 'none';
+}
+
 function renderProfileMissing(): void {
   const container = document.querySelector<HTMLElement>(
     '.profile-section .section-wrapper',
@@ -270,7 +369,7 @@ function renderProfileMissing(): void {
       <p style="opacity:0.85;margin-bottom:24px;">
         This member may have left or set their profile to private.
       </p>
-      <a href="members.html" class="lab-btn">
+      <a href="/members.html" class="lab-btn">
         <i class="icofont-users-alt-5"></i> Back to members
       </a>
     </div>
@@ -418,7 +517,7 @@ async function renderGroupsTab(ctx: PageContext): Promise<void> {
       grid.innerHTML = `
         <div class="col-12" style="padding:32px;border:1px dashed #3a1f24;border-radius:8px;background:#1f1418;text-align:center;">
           <p style="margin:0 0 12px;opacity:0.85;">You haven't joined any groups yet.</p>
-          <a href="active-group.html" class="lab-btn">
+          <a href="/active-group.html" class="lab-btn">
             <i class="icofont-users-alt-5"></i> Browse community
           </a>
         </div>
@@ -494,44 +593,54 @@ function friendActionView(status: FriendshipStatus): FriendActionView {
   }
 }
 
-async function bindFriendAction(
+async function bindRelationshipActions(
   ctx: PageContext,
   targetUserId: string,
 ): Promise<void> {
-  const link = document.querySelector<HTMLAnchorElement>(
+  // Friend action button + "Block user" dropdown item both react to the same
+  // friendship status, so we wire them through a shared applyStatus().
+  const friendLink = document.querySelector<HTMLAnchorElement>(
     '[data-app-action="friend-action"]',
   );
-  const label = document.querySelector<HTMLElement>(
+  const friendLabel = document.querySelector<HTMLElement>(
     '[data-app-target="friend-action-label"]',
   );
-  const status = document.querySelector<HTMLElement>(
-    '[data-app-target="friend-action-status"]',
+  const blockLink = document.querySelector<HTMLAnchorElement>(
+    '[data-app-target="block-user-li"] a',
   );
-  if (!link || !label) return;
 
-  const setBusy = (busy: boolean): void => {
-    link.style.pointerEvents = busy ? 'none' : '';
-    link.style.opacity = busy ? '0.6' : '';
+  const setFriendBusy = (busy: boolean): void => {
+    if (!friendLink) return;
+    friendLink.style.pointerEvents = busy ? 'none' : '';
+    friendLink.style.opacity = busy ? '0.6' : '';
   };
-  const setStatusMessage = (msg: string): void => {
-    if (status) status.textContent = msg;
+  const setBlockBusy = (busy: boolean): void => {
+    if (!blockLink) return;
+    blockLink.style.pointerEvents = busy ? 'none' : '';
+    blockLink.style.opacity = busy ? '0.6' : '';
   };
 
   let current: FriendshipStatus = 'none';
-  const applyView = (next: FriendshipStatus): void => {
+  const applyStatus = (next: FriendshipStatus): void => {
     current = next;
-    const view = friendActionView(next);
-    label.textContent = view.label;
-    link.title = view.hint ?? '';
-    link.style.pointerEvents = view.enabled ? '' : 'none';
-    link.style.opacity = view.enabled ? '' : '0.5';
+    if (friendLink && friendLabel) {
+      const view = friendActionView(next);
+      friendLabel.textContent = view.label;
+      friendLink.title = view.hint ?? '';
+      friendLink.style.pointerEvents = view.enabled ? '' : 'none';
+      friendLink.style.opacity = view.enabled ? '' : '0.5';
+    }
+    if (blockLink) {
+      blockLink.textContent =
+        next === 'blocked_by_me' ? 'Unblock user' : 'Block user';
+    }
   };
 
   try {
     const initial = await ctx
       .dispatch(friendsApi.endpoints.getFriendshipStatus.initiate(targetUserId))
       .unwrap();
-    applyView(initial.status);
+    applyStatus(initial.status);
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'INVALID_CREDENTIALS') {
@@ -539,26 +648,36 @@ async function bindFriendAction(
       const next = encodeURIComponent(
         window.location.pathname + window.location.search,
       );
-      window.location.replace(`login.html?next=${next}`);
+      window.location.replace(`/login.html?next=${next}`);
       return;
     }
     console.error('[profile] friendship status failed', err ?? raw);
     return;
   }
 
-  link.addEventListener('click', (event) => {
-    event.preventDefault();
-    void handleFriendAction(ctx, targetUserId, current, {
-      setBusy,
-      setStatusMessage,
-      applyView,
+  if (friendLink) {
+    friendLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      void handleFriendAction(ctx, targetUserId, current, {
+        setBusy: setFriendBusy,
+        applyView: applyStatus,
+      });
     });
-  });
+  }
+
+  if (blockLink) {
+    blockLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      void handleBlockAction(ctx, targetUserId, current, {
+        setBusy: setBlockBusy,
+        applyView: applyStatus,
+      });
+    });
+  }
 }
 
 type FriendActionHelpers = {
   setBusy: (busy: boolean) => void;
-  setStatusMessage: (msg: string) => void;
   applyView: (next: FriendshipStatus) => void;
 };
 
@@ -569,7 +688,6 @@ async function handleFriendAction(
   helpers: FriendActionHelpers,
 ): Promise<void> {
   helpers.setBusy(true);
-  helpers.setStatusMessage('');
   try {
     switch (status) {
       case 'none': {
@@ -579,7 +697,7 @@ async function handleFriendAction(
           )
           .unwrap();
         helpers.applyView('pending_out');
-        helpers.setStatusMessage('Friend request sent.');
+        showToast({ level: 'success', message: 'Friend request sent.' });
         return;
       }
       case 'pending_out': {
@@ -589,7 +707,7 @@ async function handleFriendAction(
           )
           .unwrap();
         helpers.applyView('none');
-        helpers.setStatusMessage('Request cancelled.');
+        showToast({ level: 'info', message: 'Request cancelled.' });
         return;
       }
       case 'pending_in': {
@@ -599,7 +717,7 @@ async function handleFriendAction(
           )
           .unwrap();
         helpers.applyView('accepted');
-        helpers.setStatusMessage("You're now friends.");
+        showToast({ level: 'success', message: "You're now friends." });
         return;
       }
       case 'accepted': {
@@ -608,7 +726,7 @@ async function handleFriendAction(
           .dispatch(friendsApi.endpoints.unfriend.initiate(targetUserId))
           .unwrap();
         helpers.applyView('none');
-        helpers.setStatusMessage('Unfriended.');
+        showToast({ level: 'info', message: 'Unfriended.' });
         return;
       }
       default:
@@ -617,9 +735,10 @@ async function handleFriendAction(
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     if (err?.code === 'EMAIL_UNVERIFIED') {
-      helpers.setStatusMessage(
-        'Verify your email before sending friend requests.',
-      );
+      showToast({
+        level: 'warning',
+        message: 'Verify your email before sending friend requests.',
+      });
       return;
     }
     if (err?.code === 'INVALID_CREDENTIALS') {
@@ -627,11 +746,87 @@ async function handleFriendAction(
       const next = encodeURIComponent(
         window.location.pathname + window.location.search,
       );
-      window.location.replace(`login.html?next=${next}`);
+      window.location.replace(`/login.html?next=${next}`);
       return;
     }
     console.error('[profile] friend action failed', err ?? raw);
-    helpers.setStatusMessage(err?.message ?? 'Something went wrong.');
+    showToast({
+      level: 'error',
+      message: err?.message ?? 'Something went wrong.',
+    });
+  } finally {
+    helpers.setBusy(false);
+  }
+}
+
+async function handleBlockAction(
+  ctx: PageContext,
+  targetUserId: string,
+  status: FriendshipStatus,
+  helpers: FriendActionHelpers,
+): Promise<void> {
+  const isBlocked = status === 'blocked_by_me';
+
+  let reason: string | undefined;
+  if (isBlocked) {
+    const { confirmed } = await showConfirm({
+      title: 'Unblock user?',
+      message:
+        'They will be able to send you friend requests and messages again. The prior friendship will not be restored.',
+      confirmLabel: 'Unblock',
+    });
+    if (!confirmed) return;
+  } else {
+    const { confirmed, inputValue } = await showConfirm({
+      title: 'Block this user?',
+      message:
+        'Any existing friendship or pending request will be removed. They will no longer be able to interact with you.',
+      confirmLabel: 'Block user',
+      danger: true,
+      input: {
+        label: 'Reason',
+        placeholder: 'e.g. Repeated unwanted messages',
+        optional: true,
+        multiline: true,
+        maxLength: 500,
+      },
+    });
+    if (!confirmed) return;
+    reason = inputValue ? inputValue : undefined;
+  }
+
+  helpers.setBusy(true);
+  try {
+    if (isBlocked) {
+      await ctx
+        .dispatch(blocksApi.endpoints.unblockUser.initiate(targetUserId))
+        .unwrap();
+      helpers.applyView('none');
+      showToast({ level: 'info', message: 'User unblocked.' });
+    } else {
+      await ctx
+        .dispatch(
+          blocksApi.endpoints.blockUser.initiate({ targetUserId, reason }),
+        )
+        .unwrap();
+      helpers.applyView('blocked_by_me');
+      showToast({ level: 'success', message: 'User blocked.' });
+    }
+  } catch (raw) {
+    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+    if (err?.code === 'INVALID_CREDENTIALS') {
+      ctx.dispatch(signedOut());
+      const next = encodeURIComponent(
+        window.location.pathname + window.location.search,
+      );
+      window.location.replace(`/login.html?next=${next}`);
+      return;
+    }
+    console.error('[profile] block action failed', err ?? raw);
+    showToast({
+      level: 'error',
+      message: err?.message ?? 'Something went wrong.',
+    });
   } finally {
     helpers.setBusy(false);
   }
@@ -663,7 +858,7 @@ async function renderFriendsTab(ctx: PageContext): Promise<void> {
       grid.innerHTML = `
         <div class="col-12" style="padding:32px;border:1px dashed #3a1f24;border-radius:8px;background:#1f1418;text-align:center;">
           <p style="margin:0 0 12px;opacity:0.85;">You haven't added any friends yet.</p>
-          <a href="members.html" class="lab-btn">
+          <a href="/members.html" class="lab-btn">
             <i class="icofont-users-alt-5"></i> Find members
           </a>
         </div>

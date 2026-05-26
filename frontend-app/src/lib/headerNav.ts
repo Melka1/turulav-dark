@@ -64,10 +64,9 @@ async function populateBlogDropdown(dispatch: AppDispatch): Promise<void> {
 
   const currentSlug = currentBlogSlug();
   const items: string[] = [];
-  // Clean URLs — `.html` triggers a query-string-dropping 301 under cleanUrls.
-  items.push(submenuItem('All Posts', 'blog', isOnBlogList()));
+  items.push(submenuItem('All Posts', '/blog', isOnBlogList()));
   for (const post of posts) {
-    const href = `blog-single?slug=${encodeURIComponent(post.slug)}`;
+    const href = `/blog/${encodeURIComponent(post.slug)}`;
     items.push(submenuItem(post.title, href, post.slug === currentSlug));
   }
   submenu.innerHTML = items.join('');
@@ -96,8 +95,12 @@ function isOnBlogList(): boolean {
 
 function currentBlogSlug(): string | null {
   if (document.body.getAttribute('data-app-page') !== 'blog-single') return null;
-  const params = new URLSearchParams(window.location.search);
-  const slug = params.get('slug');
+  const pathMatch = window.location.pathname.match(/^\/blog\/([^/?#]+)\/?$/);
+  if (pathMatch) {
+    const fromPath = decodeURIComponent(pathMatch[1]!).trim();
+    if (fromPath) return fromPath;
+  }
+  const slug = new URLSearchParams(window.location.search).get('slug');
   return slug ? slug.trim() : null;
 }
 

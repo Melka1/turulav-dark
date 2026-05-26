@@ -7,6 +7,8 @@ import type {
   FriendshipStatusDto,
   FriendsListQuery,
   FriendsListResponseData,
+  FriendSuggestionsQuery,
+  FriendSuggestionsResponseData,
   SendFriendRequestBody,
 } from '@/types/api';
 
@@ -28,6 +30,19 @@ export const friendsApi = api.injectEndpoints({
       }),
       transformResponse: (response: ApiSuccessEnvelope<FriendsListResponseData>) =>
         unwrap(response),
+      providesTags: ['Friends'],
+    }),
+
+    getFriendSuggestions: build.query<
+      FriendSuggestionsResponseData,
+      FriendSuggestionsQuery | void
+    >({
+      query: (params) => ({
+        url: `/friends/suggestions${buildQueryString((params ?? {}) as FriendsListQuery)}`,
+      }),
+      transformResponse: (
+        response: ApiSuccessEnvelope<FriendSuggestionsResponseData>,
+      ) => unwrap(response),
       providesTags: ['Friends'],
     }),
 

@@ -49,6 +49,8 @@ import type {
   FriendshipStatus,
   FriendshipStatusDto,
   FriendsListResponseData,
+  FriendSuggestionItemDto,
+  FriendSuggestionsResponseData,
   GroupDto,
   LoginRequest,
   LoginResponseData,
@@ -570,6 +572,7 @@ export const handlers = [
     const interestsParam = params.get('interests');
     const interests = interestsParam ? interestsParam.split(',').map((s) => s.trim()).filter(Boolean) : [];
     const country = params.get('country')?.toLowerCase() ?? '';
+    const city = params.get('city')?.toLowerCase() ?? '';
     const profession = params.get('profession')?.toLowerCase() ?? '';
     const minAge = numberOrNull(params.get('minAge'));
     const maxAge = numberOrNull(params.get('maxAge'));
@@ -587,6 +590,7 @@ export const handlers = [
       if (gender && r.profile.gender !== gender) return false;
       if (seeking && !r.profile.seeking.includes(seeking)) return false;
       if (country && (r.profile.country ?? '').toLowerCase() !== country) return false;
+      if (city && !(r.profile.city ?? '').toLowerCase().includes(city)) return false;
       if (profession && (r.profile.profession ?? '').toLowerCase() !== profession) return false;
       if (interests.length > 0 && !interests.every((i) => r.profile.interests.includes(i)))
         return false;
@@ -845,6 +849,46 @@ export const handlers = [
       page,
       limit,
     };
+    return ok(path, data);
+  }),
+
+  http.get(url('/friends/suggestions'), ({ request }) => {
+    const path = '/api/v1/friends/suggestions';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const viewer = token ? findByAccessToken(token) : undefined;
+    if (!viewer) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+
+    const params = new URL(request.url).searchParams;
+    const limit = Math.min(
+      50,
+      Math.max(1, numberOrNull(params.get('limit')) ?? 9),
+    );
+
+    // Surface anyone other than the viewer and their existing friends —
+    // mock-quality ranking, the real backend uses graph + interest signals.
+    const friendIds = new Set(friendsOf(viewer.user.id).map((r) => r.user.id));
+    const pool = allRecords().filter(
+      (r) => r.user.id !== viewer.user.id && !friendIds.has(r.user.id),
+    );
+    const items: FriendSuggestionItemDto[] = pool.slice(0, limit).map((r) => ({
+      id: r.user.id,
+      username: r.user.username,
+      displayName: r.profile.displayName || r.user.username,
+      avatarUrl: r.profile.avatarUrl,
+      isOnline: r.user.isOnline,
+      lastActiveAt: r.user.lastActiveAt,
+      friendCount: friendsOf(r.user.id).length,
+      gender: r.profile.gender,
+      dob: r.profile.dob,
+      country: r.profile.country,
+      city: r.profile.city,
+      bio: r.profile.bio,
+      mutuals: 0,
+    }));
+    const data: FriendSuggestionsResponseData = { items };
     return ok(path, data);
   }),
 

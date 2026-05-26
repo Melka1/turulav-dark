@@ -4,6 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- The /blog/:slug rewrite serves this file under a one-segment-deep
+         path, so relative URLs (assets/…, *.html) would otherwise resolve to
+         /blog/assets/…. The base tag forces them to resolve from the site
+         root instead. -->
+    <base href="/">
     <!-- x-icon -->
     <link rel="shortcut icon" href="assets/images/x-icon.png" type="image/x-icon">
 
@@ -326,6 +331,7 @@
                                                 <div class="right d-flex justify-content-between w-100">
                                                     <div class="custom-select">
                                                         <select name="age-start" id="age">
+                                                            <option value="" selected>Any</option>
                                                             <option value="1">18+</option>
                                                             <option value="2">19</option>
                                                             <option value="3">20</option>
@@ -344,6 +350,7 @@
 
                                                     <div class="custom-select">
                                                         <select name="age-end" id="age-two">
+                                                            <option value="" selected>Any</option>
                                                             <option value="1">36</option>
                                                             <option value="2">19</option>
                                                             <option value="3">20</option>

@@ -1,30 +1,247 @@
 import { parseApiError } from '@/api/baseQuery';
 import { profilesApi } from '@/api/profilesApi';
+import { usersApi } from '@/api/usersApi';
 import { authApi } from '@/api/authApi';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { escapeHtml, formatRelativeActive } from '@/lib/format';
 import { renderPagination } from '@/lib/pagination';
+import {
+  applyProfileDefaultsToFilterForm,
+  applyStateToMembersForm,
+  parseFilterStateFromUrl,
+  readMembersFilterForm,
+} from '@/lib/memberFilter';
+import { PROFESSIONS } from '@/lib/professions';
 import { signedOut } from '@/slices/authSlice';
 import type {
-  Gender,
   ProfileWithUserDto,
   SearchProfilesQuery,
 } from '@/types/api';
-
-const GENDER_LABEL_TO_VALUE: Record<string, Gender> = {
-  male: 'male',
-  female: 'female',
-  others: 'other',
-  other: 'other',
-  'non binary': 'non_binary',
-  'non-binary': 'non_binary',
-};
 
 const SORT_LABEL_TO_VALUE: Record<string, SearchProfilesQuery['sort']> = {
   'most active': 'most_active',
 };
 
 const FALLBACK_AVATAR = 'assets/images/member/01.jpg';
+
+type OptionalFilterId = 'age' | 'country' | 'profession' | 'city' | 'q';
+
+type OptionalFilterSpec = {
+  id: OptionalFilterId;
+  label: string;
+  /** Class applied to the wrapper div so existing `.age`/`.city`-targeted CSS rules still apply. */
+  wrapperClass?: string;
+  /** True when this filter has any meaningful value in the given state. */
+  hasValue: (state: SearchProfilesQuery) => boolean;
+  renderControl: (state: SearchProfilesQuery) => string;
+};
+
+/** Filters that are shown on a cold visit; can still be removed via the × button. */
+const DEFAULT_VISIBLE: ReadonlyArray<OptionalFilterId> = ['age', 'country'];
+
+const COUNTRY_OPTIONS: ReadonlyArray<string> = [
+  'USA',
+  'UK',
+  'Spain',
+  'Brazil',
+  'France',
+  'Newzeland',
+  'Australia',
+  'Bangladesh',
+  'Turki',
+  'Chine',
+  'India',
+  'Canada',
+];
+
+function ageOptions(selected: number | undefined): string {
+  const parts = ['<option value="">Any</option>'];
+  for (let a = 18; a <= 65; a++) {
+    parts.push(
+      `<option value="${a}"${a === selected ? ' selected' : ''}>${a}</option>`,
+    );
+  }
+  return parts.join('');
+}
+
+// Match the look of the fixed filter inputs (orange theme, see
+// `.member-filter .member-filter-inner .filter-form .custom-select select`
+// in style.css). Selects ride the existing CSS via `.custom-select`; inputs
+// have no equivalent rule so we apply the same look inline.
+const EXTRA_INPUT_STYLE =
+  'background:#fa8128;color:#fff;border:1px solid rgba(255,255,255,0.1);padding:7px 10px;outline:none;box-shadow:none;width:100%;';
+
+const OPTIONAL_FILTERS: ReadonlyArray<OptionalFilterSpec> = [
+  {
+    id: 'age',
+    label: 'Age range',
+    wrapperClass: 'age',
+    hasValue: (s) => Boolean(s.minAge || s.maxAge),
+    renderControl: (s) => `
+      <div class="right d-flex justify-content-between w-100">
+        <div class="custom-select">
+          <select name="age-start">${ageOptions(s.minAge)}</select>
+        </div>
+        <div class="custom-select">
+          <select name="age-end">${ageOptions(s.maxAge)}</select>
+        </div>
+      </div>
+    `,
+  },
+  {
+    id: 'country',
+    label: 'Country',
+    hasValue: (s) => Boolean(s.country),
+    renderControl: (s) => {
+      const options = [
+        '<option value="">Choose Your Country</option>',
+        ...COUNTRY_OPTIONS.map(
+          (c) =>
+            `<option value="${escapeHtml(c)}"${c === s.country ? ' selected' : ''}>${escapeHtml(c)}</option>`,
+        ),
+      ].join('');
+      return `<div class="custom-select right w-100"><select name="country">${options}</select></div>`;
+    },
+  },
+  {
+    id: 'profession',
+    label: 'Profession',
+    hasValue: (s) => Boolean(s.profession),
+    renderControl: (s) => {
+      const options = [
+        '<option value="">Profession</option>',
+        ...PROFESSIONS.map(
+          (p) =>
+            `<option value="${escapeHtml(p.key)}"${p.key === s.profession ? ' selected' : ''}>${escapeHtml(p.label)}</option>`,
+        ),
+      ].join('');
+      return `<div class="custom-select right w-100"><select name="profession">${options}</select></div>`;
+    },
+  },
+  {
+    id: 'city',
+    label: 'City',
+    hasValue: (s) => Boolean(s.city),
+    renderControl: (s) =>
+      `<input type="text" name="city" placeholder="City" value="${escapeHtml(s.city ?? '')}" style="${EXTRA_INPUT_STYLE}" />`,
+  },
+  {
+    id: 'q',
+    label: 'Search by name',
+    hasValue: (s) => Boolean(s.q),
+    renderControl: (s) =>
+      `<input type="text" name="q" placeholder="Search by name" value="${escapeHtml(s.q ?? '')}" style="${EXTRA_INPUT_STYLE}" />`,
+  },
+];
+
+function setupDynamicFilters(
+  form: HTMLFormElement,
+  initial: SearchProfilesQuery,
+): void {
+  const extrasContainer = form.querySelector<HTMLElement>(
+    '[data-app-filter-extras]',
+  );
+  const addDetails = form.querySelector<HTMLDetailsElement>(
+    '[data-app-filter-add]',
+  );
+  const menu = form.querySelector<HTMLUListElement>('[data-app-filter-menu]');
+  if (!extrasContainer || !addDetails || !menu) return;
+
+  // Defaults are always shown on cold load; any filter with a URL value also
+  // shows so a redirected search (e.g. ?profession=PHOTOGRAPHER from the home
+  // banner) lands with that control already populated and visible.
+  const visible = new Set<OptionalFilterId>(DEFAULT_VISIBLE);
+  for (const f of OPTIONAL_FILTERS) {
+    if (f.hasValue(initial)) visible.add(f.id);
+  }
+
+  /**
+   * Best-effort read of the current value(s) of a rendered filter so we
+   * don't lose user edits when re-rendering after an add/remove.
+   */
+  const currentState = (): SearchProfilesQuery => {
+    const out: SearchProfilesQuery = { ...initial };
+    for (const f of OPTIONAL_FILTERS) {
+      if (!visible.has(f.id)) continue;
+      if (f.id === 'age') {
+        const min = form.querySelector<HTMLSelectElement>('select[name="age-start"]')?.value;
+        const max = form.querySelector<HTMLSelectElement>('select[name="age-end"]')?.value;
+        out.minAge = min ? Number(min) : undefined;
+        out.maxAge = max ? Number(max) : undefined;
+      } else {
+        const node = form.querySelector<HTMLInputElement | HTMLSelectElement>(
+          `[name="${f.id}"]`,
+        );
+        if (node) (out as Record<string, unknown>)[f.id] = node.value || undefined;
+      }
+    }
+    return out;
+  };
+
+  const renderExtras = (): void => {
+    const state = currentState();
+    extrasContainer.innerHTML = OPTIONAL_FILTERS.filter((f) => visible.has(f.id))
+      .map((f) => {
+        const wrapperClass = f.wrapperClass ? ` class="${f.wrapperClass}"` : '';
+        return `
+          <div data-app-extra="${f.id}"${wrapperClass} style="position:relative;">
+            ${f.renderControl(state)}
+            <button
+              type="button"
+              data-app-remove="${f.id}"
+              aria-label="Remove ${escapeHtml(f.label)} filter"
+              style="position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#c2185b;color:#fff;border:0;border-radius:50%;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:2;"
+            >×</button>
+          </div>
+        `;
+      })
+      .join('');
+  };
+
+  const renderMenu = (): void => {
+    const available = OPTIONAL_FILTERS.filter((f) => !visible.has(f.id));
+    if (available.length === 0) {
+      menu.innerHTML = `<li style="padding:8px 14px;color:#888;font-size:13px;">No more filters</li>`;
+      return;
+    }
+    menu.innerHTML = available
+      .map(
+        (f) =>
+          `<li><button type="button" data-app-add="${f.id}" style="display:block;width:100%;text-align:left;background:transparent;border:0;color:#eee;padding:8px 14px;cursor:pointer;font:inherit;">${escapeHtml(f.label)}</button></li>`,
+      )
+      .join('');
+  };
+
+  extrasContainer.addEventListener('click', (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLElement>(
+      '[data-app-remove]',
+    );
+    if (!btn) return;
+    const id = btn.dataset.appRemove as OptionalFilterId;
+    visible.delete(id);
+    renderExtras();
+    renderMenu();
+  });
+
+  menu.addEventListener('click', (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLElement>(
+      '[data-app-add]',
+    );
+    if (!btn) return;
+    const id = btn.dataset.appAdd as OptionalFilterId;
+    visible.add(id);
+    renderExtras();
+    renderMenu();
+    addDetails.open = false;
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!addDetails.contains(event.target as Node)) addDetails.open = false;
+  });
+
+  renderExtras();
+  renderMenu();
+}
 
 const bindMembers: PageBinder = async (ctx) => {
   const form = document.querySelector<HTMLFormElement>(
@@ -48,7 +265,24 @@ const bindMembers: PageBinder = async (ctx) => {
     return;
   }
 
-  let state: SearchProfilesQuery = {};
+  // Seed the form. URL params are an explicit user intent (e.g. they just
+  // submitted the home banner) and should win wholesale — combining them with
+  // profile defaults would silently add gender/seeking/country filters the
+  // user never picked, narrowing results unexpectedly. Profile prefill only
+  // runs on a cold visit with no URL filters.
+  //
+  // Order matters: setupDynamicFilters renders the dynamic controls
+  // (age/country/profession/city/q) — only after that can the prefill
+  // / apply-URL helpers find those `<select>` and `<input>` nodes.
+  const urlState = parseFilterStateFromUrl(window.location.search);
+  const hasUrlFilters = Object.keys(urlState).length > 0;
+  setupDynamicFilters(form, urlState);
+  if (!hasUrlFilters) {
+    await prefillFromProfile(ctx, form);
+  }
+  applyStateToMembersForm(form, urlState);
+
+  let state: SearchProfilesQuery = { ...readMembersFilterForm(form), ...urlState };
 
   const runSearch = async (): Promise<void> => {
     renderLoading(grid);
@@ -77,7 +311,16 @@ const bindMembers: PageBinder = async (ctx) => {
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    state = { ...readFilters(form), sort: state.sort, page: 1 };
+    // `profession` and `city` are now read directly from injected controls
+    // when their filter rows are visible — removing the row drops the value
+    // by design. `viewerProfession` has no in-page control, so we preserve it
+    // across resubmits from its initial URL state.
+    state = {
+      ...readMembersFilterForm(form),
+      viewerProfession: state.viewerProfession,
+      sort: state.sort,
+      page: 1,
+    };
     void runSearch();
   });
 
@@ -86,61 +329,28 @@ const bindMembers: PageBinder = async (ctx) => {
     void runSearch();
   });
 
-  // Initial empty-filter load so the page isn't blank on entry.
   void runSearch();
 };
 
-function readFilters(form: HTMLFormElement): SearchProfilesQuery {
-  const data = new FormData(form);
-  const out: SearchProfilesQuery = {};
-
-  const genderOption = selectedOptionText(form, 'gender');
-  const genderValue = mapGender(genderOption);
-  if (genderValue) out.gender = genderValue;
-
-  const seekingOption = selectedOptionText(form, 'seeking');
-  const seekingValue = mapGender(seekingOption);
-  if (seekingValue) out.seeking = seekingValue;
-
-  const minAge = parseAge(selectedOptionText(form, 'age-start'));
-  if (minAge) out.minAge = minAge;
-  const maxAge = parseAge(selectedOptionText(form, 'age-end'));
-  if (maxAge) out.maxAge = maxAge;
-
-  const countryOption = selectedOptionText(form, 'country');
-  if (countryOption && !/choose/i.test(countryOption)) out.country = countryOption;
-
-  const q = (data.get('q') as string | null)?.trim();
-  if (q) out.q = q;
-
-  return out;
+async function prefillFromProfile(
+  ctx: PageContext,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (ctx.getState().auth.status !== 'authenticated') return;
+  try {
+    const me = await ctx
+      .dispatch(usersApi.endpoints.getMe.initiate())
+      .unwrap();
+    applyProfileDefaultsToFilterForm(form, me.profile);
+  } catch {
+    // Pre-fill is best-effort — a failure here just leaves the dropdowns
+    // empty, which is the prior behavior.
+  }
 }
 
 function readSort(select: HTMLSelectElement): SearchProfilesQuery['sort'] {
   const text = select.options[select.selectedIndex]?.text.trim().toLowerCase() ?? '';
   return SORT_LABEL_TO_VALUE[text];
-}
-
-function selectedOptionText(
-  form: HTMLFormElement,
-  name: string,
-): string | null {
-  const select = form.querySelector<HTMLSelectElement>(`select[name="${name}"]`);
-  if (!select) return null;
-  const opt = select.options[select.selectedIndex];
-  return opt ? opt.text.trim() : null;
-}
-
-function mapGender(label: string | null): Gender | undefined {
-  if (!label) return undefined;
-  if (/^(i am a|looking for)$/i.test(label)) return undefined;
-  return GENDER_LABEL_TO_VALUE[label.toLowerCase()];
-}
-
-function parseAge(label: string | null): number | undefined {
-  if (!label) return undefined;
-  const n = Number(label);
-  return Number.isFinite(n) && n >= 18 && n <= 120 ? n : undefined;
 }
 
 function renderLoading(grid: HTMLElement): void {

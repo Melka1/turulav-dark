@@ -33,7 +33,7 @@ Backend verifies Supabase JWTs, enforces business rules, then reads/writes via t
 | 4 | Group + GroupMembership | `active-group.html`, Groups tab | — |
 | 5 | [Post + Reaction + Comment + Favorite](./activity/README.md) | `profile.html` Activity tab | ✅ drafted |
 | 6 | Conversation + Message | "Public / Private Message" actions | — |
-| 7 | BlogPost + BlogComment + Tag | `blog.html`, `blog-single.html` | — |
+| 7 | [BlogPost + BlogComment + Tag](./blog/README.md) | `blog.html`, `blog-single.html` | ✅ drafted |
 | 8 | SubscriptionPlan + UserSubscription | `pricing-plan.html`, feature gating | — |
 | 9 | ContactSubmission | `contact.html` | — |
 

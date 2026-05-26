@@ -8,6 +8,8 @@ import type {
   RefreshResponseData,
   SignupRequest,
   SignupResponseData,
+  UsernameSuggestionRequest,
+  UsernameSuggestionResponseData,
 } from '@/types/api';
 
 export const authApi = api.injectEndpoints({
@@ -37,6 +39,19 @@ export const authApi = api.injectEndpoints({
         method: 'POST',
         body,
       }),
+    }),
+    suggestUsername: build.mutation<
+      UsernameSuggestionResponseData,
+      UsernameSuggestionRequest
+    >({
+      query: (body) => ({
+        url: '/auth/username-suggestions',
+        method: 'POST',
+        body,
+      }),
+      transformResponse: (
+        response: ApiSuccessEnvelope<UsernameSuggestionResponseData>,
+      ) => unwrap(response),
     }),
   }),
   overrideExisting: false,

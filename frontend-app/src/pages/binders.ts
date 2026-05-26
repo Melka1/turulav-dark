@@ -9,3 +9,4 @@ import './members';
 import './groups';
 import './blog';
 import './blogSingle';
+import './home';

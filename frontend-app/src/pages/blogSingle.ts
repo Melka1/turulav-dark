@@ -1,11 +1,21 @@
 import { parseApiError } from '@/api/baseQuery';
 import { blogApi } from '@/api/blogApi';
-import { registerPage, type PageBinder } from '@/pages';
+import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { cachePost, getCachedPost } from '@/lib/blogCache';
 import { escapeHtml } from '@/lib/format';
-import type { BlogBodyBlock, BlogPostDto } from '@/types/api';
+import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
+import { bindSidebarMemberFilters } from '@/lib/memberFilter';
+import { showToast } from '@/lib/toast';
+import type {
+  BlogBodyBlock,
+  BlogPostDto,
+  CommentDto,
+  CommentsListResponseData,
+} from '@/types/api';
 
 const FALLBACK_THUMB = 'assets/images/blog/03.jpg';
+const FALLBACK_COMMENT_AVATAR = 'assets/images/member/01.jpg';
+const COMMENTS_PAGE_SIZE = 20;
 
 const bindBlogSingle: PageBinder = async (ctx) => {
   const article = document.querySelector<HTMLElement>(
@@ -20,6 +30,9 @@ const bindBlogSingle: PageBinder = async (ctx) => {
     return;
   }
 
+  void bindSidebarMemberFilters(ctx);
+  void bindLikeMemberWidget(ctx);
+
   const slug = readSlug();
   if (!slug) {
     renderError(article, 'No post specified.');
@@ -33,6 +46,7 @@ const bindBlogSingle: PageBinder = async (ctx) => {
     if (breadcrumb) updateBreadcrumb(breadcrumb, cached.title);
     document.title = `${cached.title} — TuruLav`;
     lastSerialized = JSON.stringify(cached);
+    void bindComments(ctx, cached);
   } else {
     renderLoading(article);
   }
@@ -48,6 +62,7 @@ const bindBlogSingle: PageBinder = async (ctx) => {
       if (breadcrumb) updateBreadcrumb(breadcrumb, post.title);
       document.title = `${post.title} — TuruLav`;
     }
+    void bindComments(ctx, post);
   } catch (raw) {
     // Revalidation failure with a cached render on screen is non-fatal —
     // leave the cached view in place. Only surface the error when there's
@@ -64,8 +79,14 @@ const bindBlogSingle: PageBinder = async (ctx) => {
 };
 
 function readSlug(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get('slug');
+  // Canonical form: `/blog/<slug>` via serve/Vercel rewrite to blog-single.html.
+  // Legacy `?slug=…` is still accepted so old links keep working.
+  const pathMatch = window.location.pathname.match(/^\/blog\/([^/?#]+)\/?$/);
+  if (pathMatch) {
+    const fromPath = decodeURIComponent(pathMatch[1]!).trim();
+    if (fromPath) return fromPath;
+  }
+  const raw = new URLSearchParams(window.location.search).get('slug');
   return raw ? raw.trim() : null;
 }
 
@@ -84,7 +105,7 @@ function renderError(article: HTMLElement, message: string): void {
     <div class="post-item-inner">
       <div class="post-content" style="text-align:center;padding:48px 0;">
         <p style="color:#e84a5f;">${escapeHtml(message)}</p>
-        <p style="margin-top:16px;"><a href="blog" class="lab-btn"><span>Back to Blog</span></a></p>
+        <p style="margin-top:16px;"><a href="/blog" class="lab-btn"><span>Back to Blog</span></a></p>
       </div>
     </div>
   `;
@@ -183,7 +204,7 @@ function tagsHtml(post: BlogPostDto): string {
   const tagItems = post.tags
     .map(
       (t) =>
-        `<li><a href="blog?tag=${encodeURIComponent(t.slug)}">${escapeHtml(t.name)}</a></li>`,
+        `<li><a href="/blog?tag=${encodeURIComponent(t.slug)}">${escapeHtml(t.name)}</a></li>`,
     )
     .join('');
   return `
@@ -210,6 +231,292 @@ function formatPostDate(iso: string | null): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+async function bindComments(ctx: PageContext, post: BlogPostDto): Promise<void> {
+  const container = document.getElementById('comments');
+  if (container && !container.dataset.appBound) {
+    container.dataset.appBound = post.id;
+    renderCommentsLoading(container, post.commentCount);
+    void loadAndRenderComments(ctx, container, post.id);
+  } else if (container && container.dataset.appBound !== post.id) {
+    container.dataset.appBound = post.id;
+    renderCommentsLoading(container, post.commentCount);
+    void loadAndRenderComments(ctx, container, post.id);
+  }
+
+  const respond = document.getElementById('respond');
+  if (respond && !respond.dataset.appBound) {
+    respond.dataset.appBound = post.id;
+    bindRespondForm(ctx, respond, post.id);
+  }
+}
+
+function renderCommentsLoading(container: HTMLElement, count: number): void {
+  container.innerHTML = `
+    <div class="widget-title">
+      <h3>${formatCommentsHeading(count)}</h3>
+    </div>
+    <ul class="comment-list">
+      <li class="comment" style="opacity:0.7;">
+        <div class="com-content"><p>Loading comments…</p></div>
+      </li>
+    </ul>
+  `;
+}
+
+async function loadAndRenderComments(
+  ctx: PageContext,
+  container: HTMLElement,
+  postId: string,
+): Promise<void> {
+  try {
+    const data = await ctx
+      .dispatch(
+        blogApi.endpoints.listBlogComments.initiate({
+          postId,
+          limit: COMMENTS_PAGE_SIZE,
+        }),
+      )
+      .unwrap();
+    renderCommentsList(ctx, container, postId, data);
+  } catch (raw) {
+    const status = (raw as { status?: unknown }).status;
+    if (status === 401 || status === 403) {
+      renderCommentsRestricted(container);
+      return;
+    }
+    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+    container.innerHTML = `
+      <div class="widget-title">
+        <h3>Comments</h3>
+      </div>
+      <p style="opacity:0.75;">${escapeHtml(err?.message ?? 'Could not load comments.')}</p>
+    `;
+  }
+}
+
+function renderCommentsRestricted(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="widget-title">
+      <h3>Comments</h3>
+    </div>
+    <p style="opacity:0.85;">
+      <a href="/login.html">Sign in</a> to view and join the discussion.
+    </p>
+  `;
+}
+
+function renderCommentsList(
+  ctx: PageContext,
+  container: HTMLElement,
+  postId: string,
+  data: CommentsListResponseData,
+): void {
+  const items = data.items;
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="widget-title">
+        <h3>0 Comments</h3>
+      </div>
+      <p style="opacity:0.75;">Be the first to comment.</p>
+    `;
+    return;
+  }
+
+  const list = items.map((c) => commentItemHtml(c)).join('');
+  container.innerHTML = `
+    <div class="widget-title">
+      <h3>${formatCommentsHeading(items.length)}</h3>
+    </div>
+    <ul class="comment-list">${list}</ul>
+  `;
+
+  container.querySelectorAll<HTMLButtonElement>('button.comment-show-replies').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const commentId = btn.dataset.commentId;
+      if (!commentId) return;
+      void loadAndRenderReplies(ctx, container, postId, commentId, btn);
+    });
+  });
+}
+
+async function loadAndRenderReplies(
+  ctx: PageContext,
+  container: HTMLElement,
+  _postId: string,
+  commentId: string,
+  trigger: HTMLButtonElement,
+): Promise<void> {
+  const target = container.querySelector<HTMLUListElement>(
+    `ul.comment-replies[data-replies-for="${cssEscape(commentId)}"]`,
+  );
+  if (!target) return;
+  trigger.disabled = true;
+  trigger.textContent = 'Loading replies…';
+  try {
+    const data = await ctx
+      .dispatch(
+        blogApi.endpoints.listBlogCommentReplies.initiate({
+          commentId,
+          limit: COMMENTS_PAGE_SIZE,
+        }),
+      )
+      .unwrap();
+    target.innerHTML = data.items.map((c) => commentItemHtml(c)).join('');
+    target.hidden = false;
+    trigger.remove();
+  } catch (raw) {
+    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+    showToast({
+      level: 'error',
+      message: err?.message ?? 'Could not load replies.',
+    });
+    trigger.disabled = false;
+    trigger.textContent = `View ${trigger.dataset.replyCount ?? ''} replies`;
+  }
+}
+
+function commentItemHtml(c: CommentDto): string {
+  const avatar = c.author.avatarUrl
+    ? escapeHtml(c.author.avatarUrl)
+    : FALLBACK_COMMENT_AVATAR;
+  const name = escapeHtml(
+    c.author.displayName || c.author.username || 'Member',
+  );
+  const date = formatCommentDate(c.createdAt);
+  const body =
+    c.isDeleted || !c.body
+      ? '<em style="opacity:0.7;">[deleted]</em>'
+      : escapeHtml(c.body);
+  const repliesAffordance =
+    c.replyCount > 0
+      ? `<div class="reply-btn">
+          <button type="button" class="comment-show-replies"
+            data-comment-id="${escapeHtml(c.id)}"
+            data-reply-count="${c.replyCount}"
+            style="background:none;border:0;padding:0;color:inherit;cursor:pointer;opacity:0.85;text-decoration:underline;">
+            View ${c.replyCount} ${c.replyCount === 1 ? 'reply' : 'replies'}
+          </button>
+        </div>`
+      : '';
+  return `
+    <li class="comment" data-comment-id="${escapeHtml(c.id)}">
+      <div class="com-image">
+        <img alt="" src="${avatar}" class="avatar avatar-90 photo" height="90" width="90">
+      </div>
+      <div class="com-content">
+        <div class="com-title">
+          <div class="com-title-meta">
+            <h4><span class="url">${name}</span></h4>
+            <span>${date}</span>
+          </div>
+        </div>
+        <p>${body}</p>
+        ${repliesAffordance}
+        <ul class="comment-list comment-replies" data-replies-for="${escapeHtml(c.id)}" hidden></ul>
+      </div>
+    </li>
+  `;
+}
+
+function bindRespondForm(
+  ctx: PageContext,
+  respond: HTMLElement,
+  postId: string,
+): void {
+  const authed = ctx.getState().auth.status === 'authenticated';
+  if (!authed) {
+    respond.innerHTML = `
+      <div class="add-comment">
+        <div class="widget-title">
+          <h3>Leave a Comment</h3>
+        </div>
+        <p style="opacity:0.85;">
+          <a href="/login.html">Sign in</a> to comment on this post.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const form = respond.querySelector<HTMLFormElement>('form#commentform');
+  if (!form) return;
+
+  // The static template carries name/email/url inputs; for authenticated
+  // members the backend pulls identity from the session and only needs the
+  // body. Drop the extras so the form aligns with CreateCommentRequest.
+  form
+    .querySelectorAll<HTMLInputElement>(
+      'input[name="author"], input[name="email"], input[name="url"]',
+    )
+    .forEach((el) => el.remove());
+
+  const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="comment"]');
+  const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (!textarea || !submitBtn) return;
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const body = textarea.value.trim();
+    if (!body) {
+      showToast({ level: 'warning', message: 'Write something first.' });
+      textarea.focus();
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.dataset.busy = '1';
+    void ctx
+      .dispatch(
+        blogApi.endpoints.createBlogComment.initiate({
+          postId,
+          body: { body },
+        }),
+      )
+      .unwrap()
+      .then(() => {
+        textarea.value = '';
+        showToast({ level: 'success', message: 'Comment posted.' });
+        const container = document.getElementById('comments');
+        if (container) void loadAndRenderComments(ctx, container, postId);
+      })
+      .catch((raw: unknown) => {
+        const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+        showToast({
+          level: 'error',
+          message: err?.message ?? 'Could not post the comment.',
+        });
+      })
+      .finally(() => {
+        submitBtn.disabled = false;
+        delete submitBtn.dataset.busy;
+      });
+  });
+}
+
+function formatCommentsHeading(count: number): string {
+  const padded = count < 10 ? `0${count}` : `${count}`;
+  return `${padded} ${count === 1 ? 'Comment' : 'Comments'}`;
+}
+
+function formatCommentDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function cssEscape(value: string): string {
+  // CSS.escape is widely supported; fall back to a conservative replace.
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, '\\$&');
 }
 
 registerPage('blog-single', bindBlogSingle);

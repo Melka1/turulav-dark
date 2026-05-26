@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/members/:uuid", "destination": "/profile.html" }
+    { "source": "/members/:uuid", "destination": "/profile.html" },
+    { "source": "/blog/:slug", "destination": "/blog-single.html" }
   ]
 }

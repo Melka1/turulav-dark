@@ -5,11 +5,19 @@ import { groupsApi } from '@/api/groupsApi';
 import { profilesApi } from '@/api/profilesApi';
 import { usersApi } from '@/api/usersApi';
 import { bindActivityTab } from '@/pages/activity';
+import {
+  bindOwnAvatarUpload,
+  bindOwnCoverUpload,
+} from '@/pages/profileAvatar';
+import { renderCompletionRing } from '@/pages/profileCompletion';
 import { bindProfileMedia } from '@/pages/profileMedia';
 import { bindOwnProfileEditors } from '@/pages/profileEdit';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { signedOut } from '@/slices/authSlice';
 import { showConfirm } from '@/lib/confirmModal';
+import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
+import { bindSidebarMemberFilters } from '@/lib/memberFilter';
+import { formatProfession } from '@/lib/professions';
 import { showToast } from '@/lib/toast';
 import {
   calculateAge,
@@ -51,6 +59,9 @@ const SELF_SENTINEL = 'me';
 
 const bindProfile: PageBinder = async (ctx) => {
   const targetUserId = readTargetUserId();
+
+  void bindSidebarMemberFilters(ctx);
+  void bindLikeMemberWidget(ctx);
 
   // Mask the template's hardcoded "William Smith / 27-02-1996 / …" values
   // with shimmer placeholders before any fetch, so first-load doesn't briefly
@@ -172,6 +183,7 @@ async function renderOwnProfile(ctx: PageContext): Promise<void> {
     let currentProfile = me.profile;
     renderHeader(toHeaderView(me, currentProfile));
     renderProfileTab(currentProfile, { hideAddress: false });
+    renderCompletionRing(currentProfile.completionScore);
     bindOwnProfileEditors({
       ctx,
       getProfile: () => currentProfile,
@@ -181,8 +193,16 @@ async function renderOwnProfile(ctx: PageContext): Promise<void> {
       rerenderReadOnly: () => {
         renderHeader(toHeaderView(me, currentProfile));
         renderProfileTab(currentProfile, { hideAddress: false });
+        renderCompletionRing(currentProfile.completionScore);
       },
     });
+    const onImageUpdated = (next: typeof currentProfile): void => {
+      currentProfile = next;
+      renderHeader(toHeaderView(me, currentProfile));
+      renderCompletionRing(currentProfile.completionScore);
+    };
+    bindOwnAvatarUpload({ ctx, onUpdated: onImageUpdated });
+    bindOwnCoverUpload({ ctx, onUpdated: onImageUpdated });
     void bindActivityTab(ctx, me.id, me.id);
     void bindProfileMedia(ctx, me.id, me.id);
   } catch (raw) {
@@ -393,6 +413,7 @@ const BASE_INFO_LABELS_FULL: Record<string, (p: ProfileDto) => string> = {
   "I'm a": (p) => genderLabel(p.gender),
   'Loking for a': (p) => genderList(p.seeking), // template typo retained
   'Marital Status': (p) => titleCase(p.maritalStatus),
+  Profession: (p) => notSet(formatProfession(p.profession)),
   Age: (p) => calculateAge(p.dob),
   'Date of Birth': (p) => formatDate(p.dob),
   Address: (p) => formatAddress([p.address, p.city, p.country]),
@@ -403,6 +424,7 @@ const BASE_INFO_LABELS_PUBLIC: Record<string, (p: PublicProfileDto) => string> =
   "I'm a": (p) => genderLabel(p.gender),
   'Loking for a': (p) => genderList(p.seeking),
   'Marital Status': (p) => titleCase(p.maritalStatus),
+  Profession: (p) => notSet(formatProfession(p.profession)),
   Age: (p) => calculateAge(p.dob),
   'Date of Birth': (p) => formatDate(p.dob),
   Address: (p) => formatAddress([p.city, p.country]),

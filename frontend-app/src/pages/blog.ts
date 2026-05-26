@@ -3,6 +3,8 @@ import { blogApi } from '@/api/blogApi';
 import { registerPage, type PageBinder } from '@/pages';
 import { cachePosts } from '@/lib/blogCache';
 import { escapeHtml } from '@/lib/format';
+import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
+import { bindSidebarMemberFilters } from '@/lib/memberFilter';
 import { renderPagination } from '@/lib/pagination';
 import type { BlogListQuery, BlogPostDto } from '@/types/api';
 
@@ -48,6 +50,8 @@ const bindBlog: PageBinder = async (ctx) => {
   };
 
   void runFetch();
+  void bindSidebarMemberFilters(ctx);
+  void bindLikeMemberWidget(ctx);
 };
 
 function readInitialQuery(): BlogListQuery {
@@ -95,11 +99,10 @@ function renderList(wrapper: HTMLElement, items: BlogPostDto[]): void {
 }
 
 function cardHtml(post: BlogPostDto): string {
-  // Use the clean URL (no `.html`) because cleanUrls in serve/Vercel
-  // 301-redirects `/blog-single.html?slug=foo` to `/blog-single` and drops
-  // the query string in the process. Linking to the clean form skips the
-  // redirect entirely.
-  const href = `blog-single?slug=${encodeURIComponent(post.slug)}`;
+  // Path-style URL — serve/Vercel rewrites `/blog/:slug` to `blog-single.html`
+  // (see serve.json + vercel.json), so the slug rides in the URL itself and
+  // there's no `?slug=` query string to lose to cleanUrls' 301.
+  const href = `/blog/${encodeURIComponent(post.slug)}`;
   const title = escapeHtml(post.title);
   const excerpt = escapeHtml(post.excerpt);
   const authorName = escapeHtml(

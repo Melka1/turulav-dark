@@ -159,7 +159,10 @@ function statusToCode(status: number, message: string): string {
   }
   if (status === 404) return 'NOT_FOUND';
   if (status === 409) {
-    if (m.includes('username')) return 'USERNAME_TAKEN';
+    if (m.includes('username')) {
+      if (m.includes('reserved')) return 'USERNAME_RESERVED';
+      return 'USERNAME_TAKEN';
+    }
     if (m.includes('email')) return 'EMAIL_TAKEN';
     return 'CONFLICT';
   }

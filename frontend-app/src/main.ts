@@ -63,6 +63,7 @@ async function boot(): Promise<void> {
   window.__TURULAV__ = { store, env };
 
   mountToastContainer();
+  neutralizeHashLinks();
 
   await refreshIfExpired();
   startTokenRefreshScheduler();
@@ -77,6 +78,24 @@ async function boot(): Promise<void> {
 
   await runPage({ page, dispatch: store.dispatch, getState: store.getState });
   applyPasswordToggles();
+}
+
+/**
+ * Template ships dozens of decorative `<a href="#">` / `href="#0"` placeholders
+ * (social icons, dropdown carets, etc.). On pages with `<base href="/">` —
+ * e.g. blog-single.html, where we need it for the /blog/:slug rewrite —
+ * those would resolve to `/#` and yank the user back to the home page.
+ * Swallow the click instead.
+ */
+function neutralizeHashLinks(): void {
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest('a');
+    if (!anchor) return;
+    const href = anchor.getAttribute('href');
+    if (href === '#' || href === '#0') event.preventDefault();
+  });
 }
 
 if (document.readyState === 'loading') {

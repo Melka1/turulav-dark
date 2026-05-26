@@ -98,7 +98,15 @@ export type SearchProfilesQuery = {
   /** Comma-separated list. */
   interests?: string;
   country?: string;
+  city?: string;
   profession?: string;
+  /**
+   * The searcher's own profession, used by the backend for symmetric
+   * matching. Sent by the home banner's "I am a" select for guest viewers;
+   * omitted for signed-in viewers (the backend reads it from the session
+   * profile instead).
+   */
+  viewerProfession?: string;
   minAge?: number;
   maxAge?: number;
   sort?: 'most_active' | 'relevance';
@@ -111,6 +119,25 @@ export type SearchProfilesResponseData = {
   total: number;
   page: number;
   limit: number;
+};
+
+/**
+ * `GET /profiles/new` returns the standard profile shape plus signup metadata
+ * and a pre-formatted activity label. `tier` here also covers anonymous
+ * viewers (`guest`).
+ */
+export type NewMemberItemDto = Omit<ProfileWithUserDto, 'tier'> & {
+  tier: 'guest' | 'member' | 'friend' | 'self';
+  joinedAt: string;
+  activeLabel: string | null;
+};
+
+export type NewMembersListQuery = {
+  limit?: number;
+};
+
+export type NewMembersListResponseData = {
+  items: NewMemberItemDto[];
 };
 
 export type UserDto = {
@@ -143,14 +170,25 @@ export type AuthSession = {
 };
 
 export type SignupRequest = {
-  username: string;
   email: string;
   password: string;
+  displayName: string;
+  username: string;
 };
 
 export type SignupResponseData = {
   userId: string;
   emailConfirmationRequired: boolean;
+};
+
+export type UsernameSuggestionRequest = {
+  displayName: string;
+};
+
+export type UsernameSuggestionResponseData = {
+  username: string;
+  available: boolean;
+  suggestions: string[];
 };
 
 export type LoginRequest = {
@@ -272,6 +310,22 @@ export type FriendsListResponseData = {
   total: number;
   page: number;
   limit: number;
+};
+
+/**
+ * `GET /friends/suggestions` — backend ranks candidates the viewer might know.
+ * Same flat shape as FriendItemDto plus `mutuals` (count of friends-in-common).
+ */
+export type FriendSuggestionItemDto = FriendItemDto & {
+  mutuals: number;
+};
+
+export type FriendSuggestionsQuery = {
+  limit?: number;
+};
+
+export type FriendSuggestionsResponseData = {
+  items: FriendSuggestionItemDto[];
 };
 
 export type SendFriendRequestBody = {

@@ -88,8 +88,11 @@ async function loadOnlineMembers(ctx: PageContext): Promise<void> {
   // at `window.load`, which absolute-positions items and fixes the container
   // height. We rerender that container's contents, so the stale height/inline
   // styles leak past and overlap the next section. Drop the Isotope styles
-  // and lay out the grid ourselves.
+  // and lay out the grid ourselves — with !important so a late Isotope init
+  // (e.g., when images finish loading on deployed sites) can't overwrite us.
   applyOnlineGridLayout(grid);
+  // Re-assert after `window.load` in case Isotope inits after our render.
+  defendAgainstIsotope(grid);
 
   ensureShimmerStyle();
   renderOnlineShimmer(grid);
@@ -106,6 +109,7 @@ async function loadOnlineMembers(ctx: PageContext): Promise<void> {
       .unwrap();
     renderOnlineMembers(grid, data.items);
     if (filterButtons) renderOnlineFilters(filterButtons, grid, data.items);
+    applyOnlineGridLayout(grid);
   } catch (raw) {
     const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     renderOnlineError(grid, err?.message ?? 'Could not load online members.');
@@ -113,11 +117,36 @@ async function loadOnlineMembers(ctx: PageContext): Promise<void> {
 }
 
 function applyOnlineGridLayout(grid: HTMLElement): void {
-  grid.style.position = 'static';
-  grid.style.height = 'auto';
-  grid.style.display = 'grid';
-  grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
-  grid.style.gap = '24px';
+  grid.style.setProperty('position', 'static', 'important');
+  grid.style.setProperty('height', 'auto', 'important');
+  grid.style.setProperty('display', 'grid', 'important');
+  grid.style.setProperty(
+    'grid-template-columns',
+    'repeat(auto-fill, minmax(220px, 1fr))',
+    'important',
+  );
+  grid.style.setProperty('gap', '24px', 'important');
+}
+
+function defendAgainstIsotope(grid: HTMLElement): void {
+  const reapply = (): void => applyOnlineGridLayout(grid);
+  if (document.readyState === 'complete') {
+    // window.load already fired — Isotope (if any) has run. Re-assert and
+    // also schedule one more on next frame to win against any deferred work.
+    reapply();
+    requestAnimationFrame(reapply);
+    return;
+  }
+  // window.load hasn't fired yet — Isotope will init then. Reapply right
+  // after, plus one frame later to outrun any internal layout passes.
+  window.addEventListener(
+    'load',
+    () => {
+      reapply();
+      requestAnimationFrame(reapply);
+    },
+    { once: true },
+  );
 }
 
 function renderOnlineFilters(

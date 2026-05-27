@@ -87,9 +87,9 @@ export function escapeHtml(value: string): string {
 }
 
 export function formatRelativeActive(iso: string | null): string {
-  if (!iso) return 'Online status unknown';
+  if (!iso) return 'Offline';
   const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return 'Online status unknown';
+  if (Number.isNaN(ts)) return 'Offline';
   const diff = Math.max(0, Date.now() - ts);
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return 'Active just now';

@@ -25,6 +25,7 @@ export type MemberFilterState = Pick<
   | 'q'
   | 'gender'
   | 'seeking'
+  | 'interests'
   | 'country'
   | 'city'
   | 'profession'
@@ -144,6 +145,11 @@ export function readMembersFilterForm(form: HTMLFormElement): MemberFilterState 
     ?.value?.trim();
   if (city) out.city = city;
 
+  const interests = form
+    .querySelector<HTMLSelectElement>('select[name="interests"]')
+    ?.value?.trim();
+  if (interests) out.interests = interests;
+
   const data = new FormData(form);
   const q = (data.get('q') as string | null)?.trim();
   if (q) out.q = q;
@@ -189,7 +195,7 @@ export function readSidebarFilterForm(form: HTMLFormElement): MemberFilterState 
   );
   if (interest && !PLACEHOLDER_LABEL_RE.test(interest)) {
     // SearchProfilesQuery expects a comma-separated list; single value is fine.
-    (out as MemberFilterState & { interests?: string }).interests = interest;
+    out.interests = interest;
   }
 
   return out;
@@ -328,6 +334,7 @@ const ALLOWED_KEYS: Array<keyof MemberFilterState> = [
   'q',
   'gender',
   'seeking',
+  'interests',
   'country',
   'city',
   'profession',
@@ -359,6 +366,8 @@ export function parseFilterStateFromUrl(search: string): MemberFilterState {
   if (country) out.country = country;
   const city = params.get('city');
   if (city) out.city = city;
+  const interests = params.get('interests');
+  if (interests) out.interests = interests;
   const profession = params.get('profession');
   if (profession) out.profession = profession;
   const viewerProfession = params.get('viewerProfession');
@@ -405,9 +414,11 @@ export function bindRedirectFilter(
 
 /**
  * Wire up every sidebar `Filter Search Member` widget on the current page:
- * pre-fill from the signed-in viewer's profile (best-effort), then redirect
- * on submit. Safe to call on pages that have no such widget — it just
- * returns early.
+ * pre-fill from the signed-in viewer's profile, hide the gender/seeking
+ * selects when the profile already declares them (re-asking on every search
+ * is noise), then redirect on submit to `/members.html?…`. The redirect URL
+ * still carries gender/seeking — they're backfilled from the profile when
+ * the selects are hidden. Safe to call on pages that have no such widget.
  */
 export async function bindSidebarMemberFilters(ctx: PageContext): Promise<void> {
   const forms = Array.from(
@@ -419,8 +430,44 @@ export async function bindSidebarMemberFilters(ctx: PageContext): Promise<void> 
 
   const profile = await fetchMyProfile(ctx);
   for (const form of forms) {
-    if (profile) applyProfileDefaultsToFilterForm(form, profile);
-    bindRedirectFilter(form, readSidebarFilterForm);
+    if (profile) {
+      applyProfileDefaultsToFilterForm(form, profile);
+      hidePrefilledGenderSeeking(form, profile);
+    }
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const state = readSidebarFilterForm(form);
+      if (profile) applyProfileBackfill(state, profile);
+      window.location.assign(buildMembersUrl(state));
+    });
+  }
+}
+
+function hidePrefilledGenderSeeking(
+  form: HTMLFormElement,
+  profile: ProfileDto,
+): void {
+  if (profile.gender) {
+    const wrap = form.querySelector<HTMLElement>('.gender');
+    if (wrap) wrap.style.display = 'none';
+  }
+  if (Array.isArray(profile.seeking) && profile.seeking.length > 0) {
+    const wrap = form.querySelector<HTMLElement>('.person');
+    if (wrap) wrap.style.display = 'none';
+  }
+}
+
+function applyProfileBackfill(
+  state: MemberFilterState,
+  profile: ProfileDto,
+): void {
+  if (profile.gender && !state.gender) state.gender = profile.gender;
+  if (
+    Array.isArray(profile.seeking) &&
+    profile.seeking.length > 0 &&
+    !state.seeking
+  ) {
+    state.seeking = profile.seeking.join(',');
   }
 }
 

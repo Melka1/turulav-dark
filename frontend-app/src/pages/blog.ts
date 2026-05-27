@@ -3,6 +3,7 @@ import { blogApi } from '@/api/blogApi';
 import { registerPage, type PageBinder } from '@/pages';
 import { cachePosts } from '@/lib/blogCache';
 import { escapeHtml } from '@/lib/format';
+import { bindJoinGroupWidget } from '@/lib/joinGroupWidget';
 import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
 import { bindSidebarMemberFilters } from '@/lib/memberFilter';
 import { renderPagination } from '@/lib/pagination';
@@ -52,6 +53,7 @@ const bindBlog: PageBinder = async (ctx) => {
   void runFetch();
   void bindSidebarMemberFilters(ctx);
   void bindLikeMemberWidget(ctx);
+  void bindJoinGroupWidget(ctx);
 };
 
 function readInitialQuery(): BlogListQuery {

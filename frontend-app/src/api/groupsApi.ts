@@ -3,11 +3,15 @@ import { unwrap } from './baseQuery';
 import type {
   ApiSuccessEnvelope,
   GroupDto,
+  GroupSuggestionsQuery,
+  GroupSuggestionsResponseData,
   SearchGroupsQuery,
   SearchGroupsResponseData,
 } from '@/types/api';
 
-function buildQueryString(params: SearchGroupsQuery): string {
+function buildQueryString(
+  params: SearchGroupsQuery | GroupSuggestionsQuery,
+): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue;
@@ -31,6 +35,18 @@ export const groupsApi = api.injectEndpoints({
       transformResponse: (response: ApiSuccessEnvelope<GroupDto[]>) =>
         unwrap(response),
       providesTags: ['Me'],
+    }),
+    getGroupSuggestions: build.query<
+      GroupSuggestionsResponseData,
+      GroupSuggestionsQuery | void
+    >({
+      query: (params) => ({
+        url: `/groups/suggestions${buildQueryString((params ?? {}) as GroupSuggestionsQuery)}`,
+      }),
+      transformResponse: (
+        response: ApiSuccessEnvelope<GroupSuggestionsResponseData>,
+      ) => unwrap(response),
+      providesTags: ['Search'],
     }),
   }),
   overrideExisting: false,

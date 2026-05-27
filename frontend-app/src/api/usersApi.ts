@@ -23,6 +23,9 @@ export const usersApi = api.injectEndpoints({
     presenceHeartbeat: build.mutation<void, void>({
       query: () => ({ url: '/users/me/presence', method: 'POST' }),
     }),
+    presenceOffline: build.mutation<void, void>({
+      query: () => ({ url: '/users/me/presence', method: 'DELETE' }),
+    }),
   }),
   overrideExisting: false,
 });

@@ -3,6 +3,7 @@ import { blogApi } from '@/api/blogApi';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { cachePost, getCachedPost } from '@/lib/blogCache';
 import { escapeHtml } from '@/lib/format';
+import { bindJoinGroupWidget } from '@/lib/joinGroupWidget';
 import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
 import { bindSidebarMemberFilters } from '@/lib/memberFilter';
 import { showToast } from '@/lib/toast';
@@ -32,6 +33,7 @@ const bindBlogSingle: PageBinder = async (ctx) => {
 
   void bindSidebarMemberFilters(ctx);
   void bindLikeMemberWidget(ctx);
+  void bindJoinGroupWidget(ctx);
 
   const slug = readSlug();
   if (!slug) {
@@ -42,7 +44,7 @@ const bindBlogSingle: PageBinder = async (ctx) => {
   const cached = getCachedPost(slug);
   let lastSerialized: string | null = null;
   if (cached) {
-    renderArticle(article, cached);
+    renderArticle(article, cached, ctx);
     if (breadcrumb) updateBreadcrumb(breadcrumb, cached.title);
     document.title = `${cached.title} — TuruLav`;
     lastSerialized = JSON.stringify(cached);
@@ -58,7 +60,7 @@ const bindBlogSingle: PageBinder = async (ctx) => {
     cachePost(post);
     const fresh = JSON.stringify(post);
     if (fresh !== lastSerialized) {
-      renderArticle(article, post);
+      renderArticle(article, post, ctx);
       if (breadcrumb) updateBreadcrumb(breadcrumb, post.title);
       document.title = `${post.title} — TuruLav`;
     }
@@ -111,7 +113,11 @@ function renderError(article: HTMLElement, message: string): void {
   `;
 }
 
-function renderArticle(article: HTMLElement, post: BlogPostDto): void {
+function renderArticle(
+  article: HTMLElement,
+  post: BlogPostDto,
+  ctx?: PageContext,
+): void {
   const authorName = escapeHtml(
     post.author.displayName || post.author.username || 'Admin',
   );
@@ -126,9 +132,12 @@ function renderArticle(article: HTMLElement, post: BlogPostDto): void {
         <h3>${title}</h3>
         <div class="post-body">${renderBody(post.body)}</div>
       </div>
+      ${reactionsHtml(post)}
       ${tagsHtml(post)}
     </div>
   `;
+
+  if (ctx) bindReactions(ctx, article, post);
 }
 
 // Same fill-the-box treatment as the list cards, slightly wider hero ratio.
@@ -197,6 +206,95 @@ function renderBlock(block: BlogBodyBlock): string {
     default:
       return '';
   }
+}
+
+function reactionsHtml(post: BlogPostDto): string {
+  const liked = post.viewerLiked ? ' is-liked' : '';
+  const ariaPressed = post.viewerLiked ? 'true' : 'false';
+  const likeWord = post.likeCount === 1 ? 'Like' : 'Likes';
+  const commentWord = post.commentCount === 1 ? 'Comment' : 'Comments';
+  return `
+    <div class="blog-footer" data-app-reactions>
+      <div class="right" style="margin-left:auto;">
+        <button type="button"
+          class="blog-heart app-blog-like-btn${liked}"
+          aria-pressed="${ariaPressed}"
+          data-post-id="${escapeHtml(post.id)}"
+          style="background:none;border:0;padding:0;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+          <i class="icofont-heart-alt"></i>
+          <span class="app-like-count">${post.likeCount}</span>
+          <span class="d-none d-sm-inline-block app-like-word">${likeWord}</span>
+        </button>
+        <a href="#comments" class="blog-comment" style="margin-left:16px;">
+          <i class="icofont-comment"></i>
+          <span class="app-comment-count">${post.commentCount}</span>
+          <span class="d-none d-sm-inline-block">${commentWord}</span>
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function bindReactions(
+  ctx: PageContext,
+  article: HTMLElement,
+  post: BlogPostDto,
+): void {
+  const btn = article.querySelector<HTMLButtonElement>('button.app-blog-like-btn');
+  if (!btn) return;
+
+  let liked = post.viewerLiked;
+  let count = post.likeCount;
+
+  btn.addEventListener('click', () => {
+    if (ctx.getState().auth.status !== 'authenticated') {
+      showToast({ level: 'info', message: 'Sign in to like this post.' });
+      return;
+    }
+    if (btn.dataset.busy === '1') return;
+    btn.dataset.busy = '1';
+
+    const optimisticLiked = !liked;
+    const optimisticCount = Math.max(0, count + (optimisticLiked ? 1 : -1));
+    applyReactionState(btn, optimisticLiked, optimisticCount);
+
+    const endpoint = optimisticLiked
+      ? blogApi.endpoints.likeBlogPost
+      : blogApi.endpoints.unlikeBlogPost;
+
+    void ctx
+      .dispatch(endpoint.initiate(post.id))
+      .unwrap()
+      .then((res) => {
+        liked = res.viewerLiked;
+        count = res.likeCount;
+        applyReactionState(btn, liked, count);
+      })
+      .catch((raw: unknown) => {
+        applyReactionState(btn, liked, count);
+        const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+        showToast({
+          level: 'error',
+          message: err?.message ?? 'Could not update your reaction.',
+        });
+      })
+      .finally(() => {
+        delete btn.dataset.busy;
+      });
+  });
+}
+
+function applyReactionState(
+  btn: HTMLButtonElement,
+  liked: boolean,
+  count: number,
+): void {
+  btn.classList.toggle('is-liked', liked);
+  btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+  const countEl = btn.querySelector<HTMLElement>('.app-like-count');
+  const wordEl = btn.querySelector<HTMLElement>('.app-like-word');
+  if (countEl) countEl.textContent = String(count);
+  if (wordEl) wordEl.textContent = count === 1 ? 'Like' : 'Likes';
 }
 
 function tagsHtml(post: BlogPostDto): string {

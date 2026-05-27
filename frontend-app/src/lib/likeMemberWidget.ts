@@ -1,8 +1,12 @@
 /**
  * Wires up the static "you may like" sidebar widget (`.widget.like-member`)
- * to `GET /friends/suggestions`. Guest viewers don't see it at all — the
- * whole widget element is removed from the DOM so neighbouring widgets
- * collapse cleanly into the freed space.
+ * to `GET /friends/suggestions`. Guest viewers don't see it at all — the whole
+ * widget element is removed from the DOM so neighbouring widgets collapse
+ * cleanly into the freed space.
+ *
+ * Profile.html carries the same widget inside every tab pane (activity,
+ * profile, friends, groups, …). We bind every instance off a single fetch so
+ * switching tabs always shows the same data.
  */
 
 import { parseApiError } from '@/api/baseQuery';
@@ -15,18 +19,20 @@ const SUGGEST_LIMIT = 9;
 const FALLBACK_AVATAR = 'assets/images/widget/01.jpg';
 
 export async function bindLikeMemberWidget(ctx: PageContext): Promise<void> {
-  const widget = document.querySelector<HTMLElement>('.widget.like-member');
-  if (!widget) return;
+  const widgets = Array.from(
+    document.querySelectorAll<HTMLElement>('.widget.like-member'),
+  );
+  if (widgets.length === 0) return;
 
   if (ctx.getState().auth.status !== 'authenticated') {
-    widget.remove();
+    widgets.forEach((w) => w.remove());
     return;
   }
 
-  const content = widget.querySelector<HTMLElement>('.widget-content');
-  if (!content) return;
-
-  renderLoading(content);
+  widgets.forEach((widget) => {
+    const content = widget.querySelector<HTMLElement>('.widget-content');
+    if (content) renderLoading(content);
+  });
 
   try {
     const data = await ctx
@@ -37,20 +43,28 @@ export async function bindLikeMemberWidget(ctx: PageContext): Promise<void> {
       )
       .unwrap();
     if (data.items.length === 0) {
-      widget.remove();
+      widgets.forEach((w) => w.remove());
       return;
     }
-    content.innerHTML = renderGrid(data.items);
+    const markup = renderGrid(data.items);
+    widgets.forEach((widget) => {
+      const content = widget.querySelector<HTMLElement>('.widget-content');
+      if (content) content.innerHTML = markup;
+    });
   } catch (raw) {
-    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
     // 401 generally means the session expired between page load and fetch —
     // the auth guard will resolve it; here just hide the widget quietly.
     const status = (raw as { status?: unknown }).status;
     if (status === 401) {
-      widget.remove();
+      widgets.forEach((w) => w.remove());
       return;
     }
-    renderError(content, err?.message ?? 'Could not load suggestions.');
+    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+    const message = err?.message ?? 'Could not load suggestions.';
+    widgets.forEach((widget) => {
+      const content = widget.querySelector<HTMLElement>('.widget-content');
+      if (content) renderError(content, message);
+    });
   }
 }
 

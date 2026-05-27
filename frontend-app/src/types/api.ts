@@ -109,6 +109,8 @@ export type SearchProfilesQuery = {
   viewerProfession?: string;
   minAge?: number;
   maxAge?: number;
+  /** When true, only currently online users are returned. */
+  online?: boolean;
   sort?: 'most_active' | 'relevance';
   page?: number;
   limit?: number;
@@ -241,6 +243,10 @@ export type GroupDto = {
   coverUrl: string | null;
   maxMembers: number;
   memberCount: number;
+  /** Up to 6 member avatar URLs for the inline stack preview. */
+  memberAvatars: string[];
+  /** Label rendered after the avatar stack when more members exist (e.g. "12+"). */
+  extraMembersBand: string | null;
   adminSuspendedAt: string | null;
   deletedAt: string | null;
   createdAt: string;
@@ -262,6 +268,47 @@ export type SearchGroupsQuery = {
 
 export type SearchGroupsResponseData = {
   items: GroupDto[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export type GroupSuggestionsQuery = {
+  limit?: number;
+};
+
+/**
+ * `GET /groups/suggestions` returns a richer projection than `GroupDto`:
+ * a viewer-tier hint, banded counts (`memberCount` may be hidden as `null`
+ * with a coarse `memberCountBand` instead), plus the avatar stack and
+ * "+N more" band the sidebar widget renders directly.
+ */
+export type GroupSuggestionItemDto = {
+  tier: 'self' | 'friend' | 'member' | 'guest';
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  rules: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  visibility: GroupVisibility;
+  joinPolicy: GroupJoinPolicy;
+  interests: string[];
+  country: string | null;
+  city: string | null;
+  ownerId: string;
+  memberCount: number | null;
+  memberCountBand: string | null;
+  maxMembers: number;
+  memberAvatars: string[];
+  extraMembersBand: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GroupSuggestionsResponseData = {
+  items: GroupSuggestionItemDto[];
   total: number;
   page: number;
   limit: number;

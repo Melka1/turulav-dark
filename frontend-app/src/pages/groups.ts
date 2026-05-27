@@ -3,6 +3,7 @@ import { authApi } from '@/api/authApi';
 import { groupsApi } from '@/api/groupsApi';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { escapeHtml } from '@/lib/format';
+import { renderGroupAvatarStack } from '@/lib/groupAvatarStack';
 import { renderPagination } from '@/lib/pagination';
 import { signedOut } from '@/slices/authSlice';
 import type { GroupDto, SearchGroupsQuery } from '@/types/api';
@@ -114,7 +115,6 @@ function cardHtml(group: GroupDto, joined: boolean): string {
   const name = escapeHtml(group.name);
   const description = escapeHtml(group.description ?? '');
   const avatar = group.avatarUrl ? escapeHtml(group.avatarUrl) : FALLBACK_AVATAR;
-  const countLabel = `${group.memberCount} member${group.memberCount === 1 ? '' : 's'}`;
   const joinedBadge = joined
     ? `<span class="badge bg-theme" style="margin-left:8px;font-size:0.75rem;">Joined</span>`
     : '';
@@ -129,7 +129,7 @@ function cardHtml(group: GroupDto, joined: boolean): string {
             <h4>${name}${joinedBadge}</h4>
             <p>${description || '—'}</p>
             <ul class="img-stack d-flex">
-              <li class="bg-theme">${countLabel}</li>
+              ${renderGroupAvatarStack(group)}
             </ul>
             <div class="test">
               <a href="#" class="lab-btn" data-app-group-slug="${escapeHtml(group.slug)}">

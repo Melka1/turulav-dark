@@ -67,6 +67,8 @@ import type {
   ReactionRequest,
   ReactionSummaryDto,
   ReactionType,
+  GroupSuggestionItemDto,
+  GroupSuggestionsResponseData,
   SearchGroupsResponseData,
   SearchProfilesResponseData,
   SendFriendRequestBody,
@@ -126,6 +128,39 @@ function numberOrNull(value: string | null): number | null {
   if (value === null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Avatars of users that joined `groupId`, skipping records without one. */
+function membersOfGroupAvatars(groupId: string): string[] {
+  return allRecords()
+    .filter((r) => groupsJoinedByUser(r.user.id).includes(groupId))
+    .map((r) => r.profile.avatarUrl)
+    .filter((url): url is string => !!url);
+}
+
+/** Coarse band the real backend returns when the exact count is hidden. */
+function countBand(count: number): string {
+  if (count < 10) return '<10';
+  if (count < 50) return '<50';
+  if (count < 100) return '<100';
+  if (count < 500) return '<500';
+  if (count < 1000) return '<1k';
+  return '1k+';
+}
+
+/**
+ * Fills `memberAvatars` / `extraMembersBand` from current memberships so the
+ * mock mirrors the real backend's projection. Up to 6 avatars in the stack;
+ * anything left over becomes a "+N" band tile.
+ */
+function decorateGroup(g: GroupDto): GroupDto {
+  const avatars = membersOfGroupAvatars(g.id).slice(0, 6);
+  const extra = Math.max(0, g.memberCount - avatars.length);
+  return {
+    ...g,
+    memberAvatars: avatars,
+    extraMembersBand: extra > 0 ? `${extra}+` : null,
+  };
 }
 
 function statusBetween(viewerId: string, partnerId: string): FriendshipStatus {
@@ -576,6 +611,7 @@ export const handlers = [
     const profession = params.get('profession')?.toLowerCase() ?? '';
     const minAge = numberOrNull(params.get('minAge'));
     const maxAge = numberOrNull(params.get('maxAge'));
+    const onlineOnly = params.get('online') === 'true';
     const sort = params.get('sort');
     const page = Math.max(1, numberOrNull(params.get('page')) ?? 1);
     const limit = Math.min(100, Math.max(1, numberOrNull(params.get('limit')) ?? 20));
@@ -594,6 +630,7 @@ export const handlers = [
       if (profession && (r.profile.profession ?? '').toLowerCase() !== profession) return false;
       if (interests.length > 0 && !interests.every((i) => r.profile.interests.includes(i)))
         return false;
+      if (onlineOnly && !r.user.isOnline) return false;
       if (minAge != null || maxAge != null) {
         if (!r.profile.dob) return false;
         const age = yearsSince(r.profile.dob);
@@ -642,6 +679,31 @@ export const handlers = [
     }
     const data: UserWithProfileDto = { ...record.user, profile: record.profile };
     return ok(path, data);
+  }),
+
+  http.post(url('/users/me/presence'), ({ request }) => {
+    const path = '/api/v1/users/me/presence';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const record = token ? findByAccessToken(token) : undefined;
+    if (!record) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+    record.user.isOnline = true;
+    record.user.lastActiveAt = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete(url('/users/me/presence'), ({ request }) => {
+    const path = '/api/v1/users/me/presence';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const record = token ? findByAccessToken(token) : undefined;
+    if (!record) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+    record.user.isOnline = false;
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get(url('/users/:id'), ({ params, request }) => {
@@ -758,7 +820,7 @@ export const handlers = [
       });
 
     const start = (page - 1) * limit;
-    const slice = matches.slice(start, start + limit);
+    const slice = matches.slice(start, start + limit).map(decorateGroup);
     const data: SearchGroupsResponseData = {
       items: slice,
       total: matches.length,
@@ -776,8 +838,68 @@ export const handlers = [
     if (!viewer) {
       return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
     }
-    const mine: GroupDto[] = groupsForUser(viewer.user.id);
+    const mine: GroupDto[] = groupsForUser(viewer.user.id).map(decorateGroup);
     return ok(path, mine);
+  }),
+
+  http.get(url('/groups/suggestions'), ({ request }) => {
+    const path = '/api/v1/groups/suggestions';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const viewer = token ? findByAccessToken(token) : undefined;
+    if (!viewer) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+
+    const params = new URL(request.url).searchParams;
+    const limit = Math.min(
+      50,
+      Math.max(1, numberOrNull(params.get('limit')) ?? 20),
+    );
+
+    const joined = new Set(groupsJoinedByUser(viewer.user.id));
+    const pool = allGroups().filter(
+      (g) =>
+        g.deletedAt === null &&
+        g.adminSuspendedAt === null &&
+        g.visibility !== 'private' &&
+        !joined.has(g.id),
+    );
+    const slice = pool.slice(0, limit);
+    const items: GroupSuggestionItemDto[] = slice.map((g) => {
+      const avatars = membersOfGroupAvatars(g.id).slice(0, 6);
+      const extra = Math.max(0, g.memberCount - avatars.length);
+      return {
+        tier: 'guest',
+        id: g.id,
+        slug: g.slug,
+        name: g.name,
+        description: g.description,
+        rules: g.rules,
+        avatarUrl: g.avatarUrl,
+        coverUrl: g.coverUrl,
+        visibility: g.visibility,
+        joinPolicy: g.joinPolicy,
+        interests: g.interests,
+        country: g.country,
+        city: g.city,
+        ownerId: g.ownerId,
+        memberCount: g.memberCount,
+        memberCountBand: countBand(g.memberCount),
+        maxMembers: g.maxMembers,
+        memberAvatars: avatars,
+        extraMembersBand: extra > 0 ? `${extra}+` : null,
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+      };
+    });
+    const data: GroupSuggestionsResponseData = {
+      items,
+      total: pool.length,
+      page: 1,
+      limit,
+    };
+    return ok(path, data);
   }),
 
   http.get(url('/friends'), ({ request }) => {

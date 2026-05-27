@@ -6,6 +6,7 @@ import { applyHeaderNav } from '@/lib/headerNav';
 import { applyPasswordToggles } from '@/lib/passwordToggle';
 import { mountToastContainer } from '@/lib/toast';
 import { startTokenRefreshScheduler } from '@/lib/tokenRefreshScheduler';
+import { startPresenceHeartbeat } from '@/lib/presenceHeartbeat';
 import { authApi } from '@/api/authApi';
 import { signedOut, tokensRefreshed } from '@/slices/authSlice';
 import '@/pages/binders';
@@ -67,6 +68,7 @@ async function boot(): Promise<void> {
 
   await refreshIfExpired();
   startTokenRefreshScheduler();
+  startPresenceHeartbeat();
 
   const page = readCurrentPage();
   console.info(`[boot] page="${page}" mode=${env.mode} mocks=${env.useMocks}`);

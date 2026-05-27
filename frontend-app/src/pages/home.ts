@@ -9,9 +9,11 @@ import {
   readHomeBannerForm,
 } from '@/lib/memberFilter';
 import { formatProfession } from '@/lib/professions';
-import type { NewMemberItemDto } from '@/types/api';
+const ONLINE_FILTER_ALL = '__all__';
+import type { NewMemberItemDto, ProfileWithUserDto } from '@/types/api';
 
 const NEW_MEMBERS_LIMIT = 10;
+const ONLINE_MEMBERS_LIMIT = 10;
 const FALLBACK_AVATAR = 'assets/images/member/01.jpg';
 const SHIMMER_STYLE_ID = 'app-home-shimmer-style';
 
@@ -43,6 +45,7 @@ const bindHome: PageBinder = async (ctx) => {
   }
 
   void loadNewMembers(ctx);
+  void loadOnlineMembers(ctx);
 };
 
 async function prefillHomeProfession(
@@ -68,6 +71,199 @@ async function prefillHomeProfession(
   } catch {
     // Best-effort; leave the form untouched on failure.
   }
+}
+
+async function loadOnlineMembers(ctx: PageContext): Promise<void> {
+  const grid = document.querySelector<HTMLElement>(
+    'section.top-member-section .grid-memberlist',
+  );
+  if (!grid) return;
+
+  const filterButtons = document.querySelector<HTMLElement>(
+    'section.top-member-section .button-group',
+  );
+  if (filterButtons) filterButtons.innerHTML = '';
+
+  // The template's functions.js initialises Isotope on `.grid-memberlist`
+  // at `window.load`, which absolute-positions items and fixes the container
+  // height. We rerender that container's contents, so the stale height/inline
+  // styles leak past and overlap the next section. Drop the Isotope styles
+  // and lay out the grid ourselves.
+  applyOnlineGridLayout(grid);
+
+  ensureShimmerStyle();
+  renderOnlineShimmer(grid);
+
+  try {
+    const data = await ctx
+      .dispatch(
+        profilesApi.endpoints.searchProfiles.initiate({
+          online: true,
+          sort: 'most_active',
+          limit: ONLINE_MEMBERS_LIMIT,
+        }),
+      )
+      .unwrap();
+    renderOnlineMembers(grid, data.items);
+    if (filterButtons) renderOnlineFilters(filterButtons, grid, data.items);
+  } catch (raw) {
+    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+    renderOnlineError(grid, err?.message ?? 'Could not load online members.');
+  }
+}
+
+function applyOnlineGridLayout(grid: HTMLElement): void {
+  grid.style.position = 'static';
+  grid.style.height = 'auto';
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
+  grid.style.gap = '24px';
+}
+
+function renderOnlineFilters(
+  buttons: HTMLElement,
+  grid: HTMLElement,
+  items: ProfileWithUserDto[],
+): void {
+  const seen = new Map<string, string>();
+  for (const item of items) {
+    if (!item.profession) continue;
+    if (seen.has(item.profession)) continue;
+    seen.set(item.profession, formatProfession(item.profession) ?? item.profession);
+  }
+
+  const options = [
+    { key: ONLINE_FILTER_ALL, label: 'Show all', icon: 'icofont-heart-alt' },
+    ...Array.from(seen.entries()).map(([key, label]) => ({
+      key,
+      label: `New ${pluralizeProfession(label)}`,
+      icon: 'icofont-users-alt-3',
+    })),
+  ];
+
+  buttons.innerHTML = options
+    .map(
+      (opt, i) => `
+        <li class="button ${i === 0 ? 'is-checked ' : ''}filter-btn"
+            data-app-online-filter="${escapeHtml(opt.key)}">
+          <i class="${opt.icon}"></i> ${escapeHtml(opt.label)}
+        </li>
+      `,
+    )
+    .join('');
+
+  buttons.addEventListener(
+    'click',
+    (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLElement>(
+        '[data-app-online-filter]',
+      );
+      if (!target) return;
+      // Block functions.js's jQuery-delegated `.filter-btn` handler from
+      // firing stale Isotope filtering against the new card markup.
+      event.stopPropagation();
+      const key = target.dataset.appOnlineFilter ?? ONLINE_FILTER_ALL;
+      buttons
+        .querySelectorAll<HTMLElement>('[data-app-online-filter]')
+        .forEach((el) => el.classList.toggle('is-checked', el === target));
+      grid
+        .querySelectorAll<HTMLElement>('[data-app-user-id]')
+        .forEach((el) => {
+          const show =
+            key === ONLINE_FILTER_ALL || el.dataset.appProfession === key;
+          el.style.display = show ? '' : 'none';
+        });
+    },
+    true,
+  );
+}
+
+function pluralizeProfession(label: string): string {
+  const m = label.match(/^([^(]+?)(\s*\(.+\))?$/);
+  const head = (m?.[1] ?? label).trimEnd();
+  const tail = m?.[2] ?? '';
+  const plural = /(s|x|z|ch|sh)$/i.test(head)
+    ? `${head}es`
+    : /[^aeiou]y$/i.test(head)
+      ? `${head.slice(0, -1)}ies`
+      : `${head}s`;
+  return tail ? `${plural}${tail}` : plural;
+}
+
+function renderOnlineShimmer(grid: HTMLElement): void {
+  const cells = Array.from({ length: ONLINE_MEMBERS_LIMIT })
+    .map(
+      () => `
+        <div class="grid-member">
+          <div class="lab-item member-item style-1 style-2">
+            <div class="lab-inner">
+              <div class="lab-thumb app-shimmer-box"
+                style="width:200px;height:200px;margin:0 auto;border-radius:8px;"></div>
+              <div class="lab-content">
+                <h6><span class="app-shimmer" style="width:70%;"></span></h6>
+                <p><span class="app-shimmer" style="width:50%;"></span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `,
+    )
+    .join('');
+  grid.innerHTML = cells;
+}
+
+function renderOnlineMembers(
+  grid: HTMLElement,
+  items: ProfileWithUserDto[],
+): void {
+  if (items.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:32px 0;opacity:0.8;">
+        <p>No members are online right now.</p>
+      </div>
+    `;
+    return;
+  }
+  grid.innerHTML = items.map(onlineCardHtml).join('');
+}
+
+function onlineCardHtml(item: ProfileWithUserDto): string {
+  const name = escapeHtml(item.displayName || item.username);
+  const avatar = item.avatarUrl ? escapeHtml(item.avatarUrl) : FALLBACK_AVATAR;
+  // This section is filtered server-side via `?online=true`, so every item
+  // here is online by the server's definition. The row-level `isOnline` flag
+  // can lag (presence cron flips it on a ~2-min heartbeat threshold), so
+  // re-deriving from it here would surface "Offline" on rows we know are
+  // online. Just label them all.
+  const activeText = 'Active now';
+  const href = `/members/${encodeURIComponent(item.userId)}`;
+  const professionAttr = item.profession
+    ? ` data-app-profession="${escapeHtml(item.profession)}"`
+    : '';
+  return `
+    <div class="grid-member" data-app-user-id="${escapeHtml(item.userId)}"${professionAttr}>
+      <div class="lab-item member-item style-1 style-2">
+        <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
+          <div class="lab-thumb" style="width:200px;margin:0 auto;">
+            <img src="${avatar}" alt="${name}"
+              style="width:200px;height:200px;object-fit:cover;display:block;margin:0 auto;">
+          </div>
+          <div class="lab-content">
+            <h6><span>${name}</span></h6>
+            <p>${activeText}</p>
+          </div>
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function renderOnlineError(grid: HTMLElement, message: string): void {
+  grid.innerHTML = `
+    <div style="grid-column:1/-1;text-align:center;padding:32px 0;">
+      <p style="color:#e84a5f;">${escapeHtml(message)}</p>
+    </div>
+  `;
 }
 
 async function loadNewMembers(ctx: PageContext): Promise<void> {

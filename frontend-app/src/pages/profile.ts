@@ -15,8 +15,10 @@ import { bindOwnProfileEditors } from '@/pages/profileEdit';
 import { registerPage, type PageBinder, type PageContext } from '@/pages';
 import { signedOut } from '@/slices/authSlice';
 import { showConfirm } from '@/lib/confirmModal';
+import { bindJoinGroupWidget } from '@/lib/joinGroupWidget';
 import { bindLikeMemberWidget } from '@/lib/likeMemberWidget';
 import { bindSidebarMemberFilters } from '@/lib/memberFilter';
+import { renderGroupAvatarStack } from '@/lib/groupAvatarStack';
 import { formatProfession } from '@/lib/professions';
 import { showToast } from '@/lib/toast';
 import {
@@ -62,6 +64,7 @@ const bindProfile: PageBinder = async (ctx) => {
 
   void bindSidebarMemberFilters(ctx);
   void bindLikeMemberWidget(ctx);
+  void bindJoinGroupWidget(ctx);
 
   // Mask the template's hardcoded "William Smith / 27-02-1996 / …" values
   // with shimmer placeholders before any fetch, so first-load doesn't briefly
@@ -565,7 +568,6 @@ function groupCardHtml(group: GroupDto): string {
   const avatar = group.avatarUrl
     ? escapeHtml(group.avatarUrl)
     : GROUP_FALLBACK_AVATAR;
-  const countLabel = `${group.memberCount} member${group.memberCount === 1 ? '' : 's'}`;
   return `
     <div class="col-12">
       <div class="group-item lab-item style-1" data-app-group-slug="${escapeHtml(group.slug)}">
@@ -577,7 +579,7 @@ function groupCardHtml(group: GroupDto): string {
             <h4>${name}</h4>
             <p>${description}</p>
             <ul class="img-stack d-flex">
-              <li class="bg-theme">${countLabel}</li>
+              ${renderGroupAvatarStack(group)}
             </ul>
             <div class="test">
               <a href="#" class="lab-btn" data-app-group-slug="${escapeHtml(group.slug)}">

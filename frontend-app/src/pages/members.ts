@@ -8,12 +8,14 @@ import { renderPagination } from '@/lib/pagination';
 import {
   applyProfileDefaultsToFilterForm,
   applyStateToMembersForm,
+  type MemberFilterState,
   parseFilterStateFromUrl,
   readMembersFilterForm,
 } from '@/lib/memberFilter';
 import { PROFESSIONS } from '@/lib/professions';
 import { signedOut } from '@/slices/authSlice';
 import type {
+  ProfileDto,
   ProfileWithUserDto,
   SearchProfilesQuery,
 } from '@/types/api';
@@ -24,7 +26,13 @@ const SORT_LABEL_TO_VALUE: Record<string, SearchProfilesQuery['sort']> = {
 
 const FALLBACK_AVATAR = 'assets/images/member/01.jpg';
 
-type OptionalFilterId = 'age' | 'country' | 'profession' | 'city' | 'q';
+type OptionalFilterId =
+  | 'age'
+  | 'country'
+  | 'profession'
+  | 'city'
+  | 'interests'
+  | 'q';
 
 type OptionalFilterSpec = {
   id: OptionalFilterId;
@@ -34,10 +42,36 @@ type OptionalFilterSpec = {
   /** True when this filter has any meaningful value in the given state. */
   hasValue: (state: SearchProfilesQuery) => boolean;
   renderControl: (state: SearchProfilesQuery) => string;
+  /**
+   * If true, the row is always visible and the × remove button is not
+   * rendered. The filter is also omitted from the "+ Add Filter" menu since
+   * it can never be re-added.
+   */
+  persistent?: boolean;
 };
 
-/** Filters that are shown on a cold visit; can still be removed via the × button. */
+/** Filters that are shown on a cold visit; removable unless `persistent`. */
 const DEFAULT_VISIBLE: ReadonlyArray<OptionalFilterId> = ['age', 'country'];
+
+// Mirrors the "Your Interests" dropdown on profile.html / blog.html so the
+// values round-trip when a sidebar widget redirects here. The backend accepts
+// any string (it's matched against profile.interests), so values arriving via
+// URL that aren't in this list still drive the API call — we just can't
+// pre-select them in the <select>.
+const INTEREST_OPTIONS: ReadonlyArray<string> = [
+  'Gaming',
+  'Fishing',
+  'Skydriving',
+  'Swimming',
+  'Racing',
+  'Hangout',
+  'Tranvelling',
+  'Camping',
+  'Touring',
+  'Acting',
+  'Dancing',
+  'Singing',
+];
 
 const COUNTRY_OPTIONS: ReadonlyArray<string> = [
   'USA',
@@ -76,6 +110,7 @@ const OPTIONAL_FILTERS: ReadonlyArray<OptionalFilterSpec> = [
     id: 'age',
     label: 'Age range',
     wrapperClass: 'age',
+    persistent: true,
     hasValue: (s) => Boolean(s.minAge || s.maxAge),
     renderControl: (s) => `
       <div class="right d-flex justify-content-between w-100">
@@ -124,6 +159,33 @@ const OPTIONAL_FILTERS: ReadonlyArray<OptionalFilterSpec> = [
     hasValue: (s) => Boolean(s.city),
     renderControl: (s) =>
       `<input type="text" name="city" placeholder="City" value="${escapeHtml(s.city ?? '')}" style="${EXTRA_INPUT_STYLE}" />`,
+  },
+  {
+    id: 'interests',
+    label: 'Interest',
+    hasValue: (s) => Boolean(s.interests),
+    renderControl: (s) => {
+      const current = (s.interests ?? '').trim();
+      const matchesKnown = INTEREST_OPTIONS.some(
+        (i) => i.toLowerCase() === current.toLowerCase(),
+      );
+      // Preserve URL-supplied values that aren't in the canonical list by
+      // injecting them as a one-off option, so the filter doesn't silently
+      // drop on the next submit.
+      const extraOption =
+        current && !matchesKnown
+          ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}</option>`
+          : '';
+      const options = [
+        '<option value="">Any interest</option>',
+        extraOption,
+        ...INTEREST_OPTIONS.map(
+          (i) =>
+            `<option value="${escapeHtml(i)}"${i.toLowerCase() === current.toLowerCase() ? ' selected' : ''}>${escapeHtml(i)}</option>`,
+        ),
+      ].join('');
+      return `<div class="custom-select right w-100"><select name="interests">${options}</select></div>`;
+    },
   },
   {
     id: 'q',
@@ -183,15 +245,18 @@ function setupDynamicFilters(
     extrasContainer.innerHTML = OPTIONAL_FILTERS.filter((f) => visible.has(f.id))
       .map((f) => {
         const wrapperClass = f.wrapperClass ? ` class="${f.wrapperClass}"` : '';
-        return `
-          <div data-app-extra="${f.id}"${wrapperClass} style="position:relative;">
-            ${f.renderControl(state)}
-            <button
+        const removeBtn = f.persistent
+          ? ''
+          : `<button
               type="button"
               data-app-remove="${f.id}"
               aria-label="Remove ${escapeHtml(f.label)} filter"
               style="position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:#c2185b;color:#fff;border:0;border-radius:50%;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:2;"
-            >×</button>
+            >×</button>`;
+        return `
+          <div data-app-extra="${f.id}"${wrapperClass} style="position:relative;">
+            ${f.renderControl(state)}
+            ${removeBtn}
           </div>
         `;
       })
@@ -199,7 +264,9 @@ function setupDynamicFilters(
   };
 
   const renderMenu = (): void => {
-    const available = OPTIONAL_FILTERS.filter((f) => !visible.has(f.id));
+    const available = OPTIONAL_FILTERS.filter(
+      (f) => !visible.has(f.id) && !f.persistent,
+    );
     if (available.length === 0) {
       menu.innerHTML = `<li style="padding:8px 14px;color:#888;font-size:13px;">No more filters</li>`;
       return;
@@ -267,25 +334,36 @@ const bindMembers: PageBinder = async (ctx) => {
 
   // Seed the form. URL params are an explicit user intent (e.g. they just
   // submitted the home banner) and should win wholesale — combining them with
-  // profile defaults would silently add gender/seeking/country filters the
-  // user never picked, narrowing results unexpectedly. Profile prefill only
-  // runs on a cold visit with no URL filters.
+  // profile defaults would silently add country/age filters the user never
+  // picked, narrowing results unexpectedly. Profile prefill of those fields
+  // only runs on a cold visit with no URL filters.
+  //
+  // Gender + seeking are different: the viewer's profile already declares
+  // them, so re-asking is noise. We hide those rows when the profile has
+  // them and the URL didn't override, and backfill the search state below.
   //
   // Order matters: setupDynamicFilters renders the dynamic controls
-  // (age/country/profession/city/q) — only after that can the prefill
-  // / apply-URL helpers find those `<select>` and `<input>` nodes.
+  // (age/country/profession/city/interests/q) — only after that can the
+  // prefill / apply-URL helpers find those `<select>` and `<input>` nodes.
   const urlState = parseFilterStateFromUrl(window.location.search);
+  console.log('[members] window.location.href', window.location.href);
+  console.log('[members] window.location.search', window.location.search);
+  console.log('[members] urlState', JSON.parse(JSON.stringify(urlState)));
   const hasUrlFilters = Object.keys(urlState).length > 0;
   setupDynamicFilters(form, urlState);
-  if (!hasUrlFilters) {
-    await prefillFromProfile(ctx, form);
+  const viewerProfile = await fetchViewerProfile(ctx);
+  if (!hasUrlFilters && viewerProfile) {
+    applyProfileDefaultsToFilterForm(form, viewerProfile);
   }
   applyStateToMembersForm(form, urlState);
+  if (viewerProfile) hidePrefilledGenderSeeking(form, viewerProfile, urlState);
 
   let state: SearchProfilesQuery = { ...readMembersFilterForm(form), ...urlState };
+  applyProfileBackfill(state, viewerProfile);
 
   const runSearch = async (): Promise<void> => {
     renderLoading(grid);
+    console.log('[members] search state', JSON.parse(JSON.stringify(state)));
     try {
       const data = await ctx
         .dispatch(profilesApi.endpoints.searchProfiles.initiate(state))
@@ -321,6 +399,9 @@ const bindMembers: PageBinder = async (ctx) => {
       sort: state.sort,
       page: 1,
     };
+    // gender/seeking selects may be hidden — re-apply profile values so
+    // the filter persists across resubmits.
+    applyProfileBackfill(state, viewerProfile);
     void runSearch();
   });
 
@@ -332,19 +413,58 @@ const bindMembers: PageBinder = async (ctx) => {
   void runSearch();
 };
 
-async function prefillFromProfile(
+async function fetchViewerProfile(
   ctx: PageContext,
-  form: HTMLFormElement,
-): Promise<void> {
-  if (ctx.getState().auth.status !== 'authenticated') return;
+): Promise<ProfileDto | null> {
+  if (ctx.getState().auth.status !== 'authenticated') return null;
   try {
     const me = await ctx
       .dispatch(usersApi.endpoints.getMe.initiate())
       .unwrap();
-    applyProfileDefaultsToFilterForm(form, me.profile);
+    return me.profile;
   } catch {
-    // Pre-fill is best-effort — a failure here just leaves the dropdowns
-    // empty, which is the prior behavior.
+    // Best-effort — a failure here just falls back to the unfiltered form.
+    return null;
+  }
+}
+
+/**
+ * The viewer's own gender + seeking are stored on their profile, so re-asking
+ * on the filter form is noise. Hide those rows when the profile has them and
+ * the URL didn't override; the search state is backfilled via
+ * applyProfileBackfill() so the filter still applies.
+ */
+function hidePrefilledGenderSeeking(
+  form: HTMLFormElement,
+  profile: ProfileDto,
+  urlState: MemberFilterState,
+): void {
+  if (profile.gender && !urlState.gender) {
+    const wrap = form.querySelector<HTMLElement>('.gender');
+    if (wrap) wrap.style.display = 'none';
+  }
+  if (
+    Array.isArray(profile.seeking) &&
+    profile.seeking.length > 0 &&
+    !urlState.seeking
+  ) {
+    const wrap = form.querySelector<HTMLElement>('.person');
+    if (wrap) wrap.style.display = 'none';
+  }
+}
+
+function applyProfileBackfill(
+  state: SearchProfilesQuery,
+  profile: ProfileDto | null,
+): void {
+  if (!profile) return;
+  if (profile.gender && !state.gender) state.gender = profile.gender;
+  if (
+    Array.isArray(profile.seeking) &&
+    profile.seeking.length > 0 &&
+    !state.seeking
+  ) {
+    state.seeking = profile.seeking.join(',');
   }
 }
 

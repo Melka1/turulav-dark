@@ -504,8 +504,8 @@ function cardHtml(item: ProfileWithUserDto): string {
     <div class="col">
       <div class="lab-item member-item style-1 style-2" data-app-user-id="${escapeHtml(item.userId)}">
         <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
-          <div class="lab-thumb">
-            <img src="${avatar}" alt="${name}">
+          <div class="lab-thumb" style="${MEMBER_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${MEMBER_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h6><span>${name}</span></h6>
@@ -516,6 +516,14 @@ function cardHtml(item: ProfileWithUserDto): string {
     </div>
   `;
 }
+
+// All member/profile listings share a 3:4 portrait thumb for visual
+// consistency across pages. Real-world avatars vary in dimensions, so we
+// crop to fill with object-fit:cover.
+const MEMBER_THUMB_BOX_STYLE =
+  'aspect-ratio:3/4;width:100%;overflow:hidden;display:block;';
+const MEMBER_THUMB_IMG_STYLE =
+  'width:100%;height:100%;object-fit:cover;display:block;';
 
 function renderError(
   grid: HTMLElement,

@@ -26,41 +26,45 @@ export async function bindJoinGroupWidget(ctx: PageContext): Promise<void> {
     return;
   }
 
-  widgets.forEach((widget) => {
-    const content = widget.querySelector<HTMLElement>('.widget-content');
-    if (content) renderLoading(content);
-  });
+  const run = async (): Promise<void> => {
+    widgets.forEach((widget) => {
+      const content = widget.querySelector<HTMLElement>('.widget-content');
+      if (content) renderLoading(content);
+    });
 
-  try {
-    const data = await ctx
-      .dispatch(
-        groupsApi.endpoints.getGroupSuggestions.initiate({
-          limit: SUGGEST_LIMIT,
-        }),
-      )
-      .unwrap();
-    if (data.items.length === 0) {
-      widgets.forEach((w) => w.remove());
-      return;
+    try {
+      const data = await ctx
+        .dispatch(
+          groupsApi.endpoints.getGroupSuggestions.initiate({
+            limit: SUGGEST_LIMIT,
+          }),
+        )
+        .unwrap();
+      if (data.items.length === 0) {
+        widgets.forEach((w) => w.remove());
+        return;
+      }
+      const markup = renderList(data.items);
+      widgets.forEach((widget) => {
+        const content = widget.querySelector<HTMLElement>('.widget-content');
+        if (content) content.innerHTML = markup;
+      });
+    } catch (raw) {
+      const status = (raw as { status?: unknown }).status;
+      if (status === 401) {
+        widgets.forEach((w) => w.remove());
+        return;
+      }
+      const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+      const message = err?.message ?? 'Could not load group suggestions.';
+      widgets.forEach((widget) => {
+        const content = widget.querySelector<HTMLElement>('.widget-content');
+        if (content) renderError(content, message, () => void run());
+      });
     }
-    const markup = renderList(data.items);
-    widgets.forEach((widget) => {
-      const content = widget.querySelector<HTMLElement>('.widget-content');
-      if (content) content.innerHTML = markup;
-    });
-  } catch (raw) {
-    const status = (raw as { status?: unknown }).status;
-    if (status === 401) {
-      widgets.forEach((w) => w.remove());
-      return;
-    }
-    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
-    const message = err?.message ?? 'Could not load group suggestions.';
-    widgets.forEach((widget) => {
-      const content = widget.querySelector<HTMLElement>('.widget-content');
-      if (content) renderError(content, message);
-    });
-  }
+  };
+
+  await run();
 }
 
 function renderLoading(content: HTMLElement): void {
@@ -75,10 +79,22 @@ function renderLoading(content: HTMLElement): void {
   `;
 }
 
-function renderError(content: HTMLElement, message: string): void {
+function renderError(
+  content: HTMLElement,
+  message: string,
+  onRetry: () => void,
+): void {
   content.innerHTML = `
-    <p style="opacity:0.75;font-size:0.9em;">${escapeHtml(message)}</p>
+    <p style="opacity:0.75;font-size:0.9em;margin-bottom:8px;">${escapeHtml(message)}</p>
+    <button type="button" data-app-retry
+      style="background:none;border:0;padding:0;cursor:pointer;color:inherit;
+             font-size:0.9em;display:inline-flex;align-items:center;gap:6px;
+             text-decoration:underline;">
+      <i class="icofont-refresh"></i> Try again
+    </button>
   `;
+  const btn = content.querySelector<HTMLButtonElement>('button[data-app-retry]');
+  btn?.addEventListener('click', onRetry, { once: true });
 }
 
 function renderList(items: GroupSuggestionItemDto[]): string {

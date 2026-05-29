@@ -45,7 +45,11 @@ const bindBlog: PageBinder = async (ctx) => {
       });
     } catch (raw) {
       const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
-      renderError(wrapper, err?.message ?? 'Could not load blog posts.');
+      renderError(
+        wrapper,
+        err?.message ?? 'Could not load blog posts.',
+        () => void runFetch(),
+      );
       if (paginationList) paginationList.innerHTML = '';
     }
   };
@@ -80,12 +84,24 @@ function renderLoading(wrapper: HTMLElement): void {
   `;
 }
 
-function renderError(wrapper: HTMLElement, message: string): void {
+function renderError(
+  wrapper: HTMLElement,
+  message: string,
+  onRetry: () => void,
+): void {
   wrapper.innerHTML = `
     <div style="text-align:center;padding:48px 0;">
-      <p style="color:#e84a5f;">${escapeHtml(message)}</p>
+      <p style="color:#e84a5f;margin-bottom:16px;">${escapeHtml(message)}</p>
+      <button type="button" class="lab-btn" data-app-retry
+        style="background:none;border:0;padding:0;cursor:pointer;">
+        <span style="display:inline-flex;align-items:center;gap:8px;">
+          <i class="icofont-refresh"></i> Click here to try again
+        </span>
+      </button>
     </div>
   `;
+  const btn = wrapper.querySelector<HTMLButtonElement>('button[data-app-retry]');
+  btn?.addEventListener('click', onRetry, { once: true });
 }
 
 function renderList(wrapper: HTMLElement, items: BlogPostDto[]): void {

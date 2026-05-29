@@ -572,8 +572,8 @@ function groupCardHtml(group: GroupDto): string {
     <div class="col-12">
       <div class="group-item lab-item style-1" data-app-group-slug="${escapeHtml(group.slug)}">
         <div class="lab-inner d-flex flex-wrap align-items-center p-4">
-          <div class="lab-thumb me-md-4 mb-4 mb-md-0">
-            <img src="${avatar}" alt="${name}">
+          <div class="lab-thumb me-md-4 mb-4 mb-md-0" style="${GROUP_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${GROUP_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h4>${name}</h4>
@@ -915,8 +915,8 @@ function friendCardHtml(item: FriendItemDto): string {
     <div class="col-lg-3 col-md-4 col-6">
       <div class="lab-item member-item style-1" data-app-user-id="${escapeHtml(item.id)}">
         <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
-          <div class="lab-thumb">
-            <img src="${avatar}" alt="${name}">
+          <div class="lab-thumb" style="${MEMBER_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${MEMBER_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h6><span>${name}</span></h6>
@@ -927,5 +927,23 @@ function friendCardHtml(item: FriendItemDto): string {
     </div>
   `;
 }
+
+// All member/profile listings share a 3:4 portrait thumb for visual
+// consistency across pages. Real-world avatars vary in dimensions, so we
+// crop to fill with object-fit:cover.
+const MEMBER_THUMB_BOX_STYLE =
+  'aspect-ratio:3/4;width:100%;overflow:hidden;display:block;';
+const MEMBER_THUMB_IMG_STYLE =
+  'width:100%;height:100%;object-fit:cover;display:block;';
+
+// Group cards everywhere render a 1:1 square thumb. The template's CSS
+// handles the responsive width (40% at ≥576px, full width on mobile
+// column-wrap), so we only enforce the square ratio + crop here. height:auto
+// overrides the template's `height:100%` rule that would otherwise stretch
+// the thumb to the card's content height.
+const GROUP_THUMB_BOX_STYLE =
+  'aspect-ratio:1;height:auto;overflow:hidden;display:block;';
+const GROUP_THUMB_IMG_STYLE =
+  'width:100%;height:100%;object-fit:cover;display:block;';
 
 registerPage('profile', bindProfile);

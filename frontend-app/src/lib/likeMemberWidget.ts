@@ -29,43 +29,47 @@ export async function bindLikeMemberWidget(ctx: PageContext): Promise<void> {
     return;
   }
 
-  widgets.forEach((widget) => {
-    const content = widget.querySelector<HTMLElement>('.widget-content');
-    if (content) renderLoading(content);
-  });
+  const run = async (): Promise<void> => {
+    widgets.forEach((widget) => {
+      const content = widget.querySelector<HTMLElement>('.widget-content');
+      if (content) renderLoading(content);
+    });
 
-  try {
-    const data = await ctx
-      .dispatch(
-        friendsApi.endpoints.getFriendSuggestions.initiate({
-          limit: SUGGEST_LIMIT,
-        }),
-      )
-      .unwrap();
-    if (data.items.length === 0) {
-      widgets.forEach((w) => w.remove());
-      return;
+    try {
+      const data = await ctx
+        .dispatch(
+          friendsApi.endpoints.getFriendSuggestions.initiate({
+            limit: SUGGEST_LIMIT,
+          }),
+        )
+        .unwrap();
+      if (data.items.length === 0) {
+        widgets.forEach((w) => w.remove());
+        return;
+      }
+      const markup = renderGrid(data.items);
+      widgets.forEach((widget) => {
+        const content = widget.querySelector<HTMLElement>('.widget-content');
+        if (content) content.innerHTML = markup;
+      });
+    } catch (raw) {
+      // 401 generally means the session expired between page load and fetch —
+      // the auth guard will resolve it; here just hide the widget quietly.
+      const status = (raw as { status?: unknown }).status;
+      if (status === 401) {
+        widgets.forEach((w) => w.remove());
+        return;
+      }
+      const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
+      const message = err?.message ?? 'Could not load suggestions.';
+      widgets.forEach((widget) => {
+        const content = widget.querySelector<HTMLElement>('.widget-content');
+        if (content) renderError(content, message, () => void run());
+      });
     }
-    const markup = renderGrid(data.items);
-    widgets.forEach((widget) => {
-      const content = widget.querySelector<HTMLElement>('.widget-content');
-      if (content) content.innerHTML = markup;
-    });
-  } catch (raw) {
-    // 401 generally means the session expired between page load and fetch —
-    // the auth guard will resolve it; here just hide the widget quietly.
-    const status = (raw as { status?: unknown }).status;
-    if (status === 401) {
-      widgets.forEach((w) => w.remove());
-      return;
-    }
-    const err = parseApiError(raw as Parameters<typeof parseApiError>[0]);
-    const message = err?.message ?? 'Could not load suggestions.';
-    widgets.forEach((widget) => {
-      const content = widget.querySelector<HTMLElement>('.widget-content');
-      if (content) renderError(content, message);
-    });
-  }
+  };
+
+  await run();
 }
 
 // Drop the template's `row-cols-sm-auto` modifier: that sizes each cell to the
@@ -112,8 +116,20 @@ function cellHtml(item: FriendSuggestionItemDto): string {
   `;
 }
 
-function renderError(content: HTMLElement, message: string): void {
+function renderError(
+  content: HTMLElement,
+  message: string,
+  onRetry: () => void,
+): void {
   content.innerHTML = `
-    <p style="opacity:0.7;font-size:0.9em;">${escapeHtml(message)}</p>
+    <p style="opacity:0.7;font-size:0.9em;margin-bottom:8px;">${escapeHtml(message)}</p>
+    <button type="button" data-app-retry
+      style="background:none;border:0;padding:0;cursor:pointer;color:inherit;
+             font-size:0.9em;display:inline-flex;align-items:center;gap:6px;
+             text-decoration:underline;">
+      <i class="icofont-refresh"></i> Try again
+    </button>
   `;
+  const btn = content.querySelector<HTMLButtonElement>('button[data-app-retry]');
+  btn?.addEventListener('click', onRetry, { once: true });
 }

@@ -10,6 +10,17 @@ import type { GroupDto, SearchGroupsQuery } from '@/types/api';
 
 const FALLBACK_AVATAR = 'assets/images/group/01.jpg';
 
+// Group cards everywhere render a 1:1 square thumb. Group avatars come in
+// arbitrary dimensions, so we crop to fill with object-fit:cover. The
+// template's CSS handles the responsive width (40% at ≥576px, full width on
+// mobile column-wrap), so we only enforce the square ratio + crop here —
+// height:auto is needed to override the template's `height:100%` rule that
+// would otherwise stretch the thumb to the card's content height.
+const GROUP_THUMB_BOX_STYLE =
+  'aspect-ratio:1;height:auto;overflow:hidden;display:block;';
+const GROUP_THUMB_IMG_STYLE =
+  'width:100%;height:100%;object-fit:cover;display:block;';
+
 const bindGroups: PageBinder = async (ctx) => {
   const form = document.querySelector<HTMLFormElement>(
     'form[data-app-form="groups-search"]',
@@ -122,8 +133,8 @@ function cardHtml(group: GroupDto, joined: boolean): string {
     <div class="col-lg-6">
       <div class="group-item lab-item style-1" data-app-group-slug="${escapeHtml(group.slug)}">
         <div class="lab-inner d-flex flex-wrap align-items-center p-4">
-          <div class="lab-thumb me-md-4 mb-4 mb-md-0">
-            <img src="${avatar}" alt="${name}">
+          <div class="lab-thumb me-md-4 mb-4 mb-md-0" style="${GROUP_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${GROUP_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h4>${name}${joinedBadge}</h4>

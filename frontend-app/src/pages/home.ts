@@ -17,6 +17,14 @@ const ONLINE_MEMBERS_LIMIT = 10;
 const FALLBACK_AVATAR = 'assets/images/member/01.jpg';
 const SHIMMER_STYLE_ID = 'app-home-shimmer-style';
 
+// All member/profile listings share a 3:4 portrait thumb for visual
+// consistency across pages. Real-world avatars vary in dimensions, so we
+// crop to fill with object-fit:cover.
+const MEMBER_THUMB_BOX_STYLE =
+  'aspect-ratio:3/4;width:100%;overflow:hidden;display:block;';
+const MEMBER_THUMB_IMG_STYLE =
+  'width:100%;height:100%;object-fit:cover;display:block;';
+
 /**
  * The home page banner-form is profession-flavoured ("I am a Painter / Looking
  * for Photographer / City") and lives in `.banner-section`. It redirects to
@@ -233,7 +241,7 @@ function renderOnlineShimmer(grid: HTMLElement): void {
           <div class="lab-item member-item style-1 style-2">
             <div class="lab-inner">
               <div class="lab-thumb app-shimmer-box"
-                style="width:200px;height:200px;margin:0 auto;border-radius:8px;"></div>
+                style="${MEMBER_THUMB_BOX_STYLE}border-radius:8px;"></div>
               <div class="lab-content">
                 <h6><span class="app-shimmer" style="width:70%;"></span></h6>
                 <p><span class="app-shimmer" style="width:50%;"></span></p>
@@ -279,9 +287,8 @@ function onlineCardHtml(item: ProfileWithUserDto): string {
     <div class="grid-member" data-app-user-id="${escapeHtml(item.userId)}"${professionAttr}>
       <div class="lab-item member-item style-1 style-2">
         <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
-          <div class="lab-thumb" style="width:200px;margin:0 auto;">
-            <img src="${avatar}" alt="${name}"
-              style="width:200px;height:200px;object-fit:cover;display:block;margin:0 auto;">
+          <div class="lab-thumb" style="${MEMBER_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${MEMBER_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h6><span>${name}</span></h6>
@@ -333,7 +340,7 @@ function renderShimmer(grid: HTMLElement): void {
           <div class="lab-item member-item style-1">
             <div class="lab-inner">
               <div class="lab-thumb app-shimmer-box"
-                style="aspect-ratio:1/1;border-radius:8px;"></div>
+                style="${MEMBER_THUMB_BOX_STYLE}border-radius:8px;"></div>
               <div class="lab-content">
                 <h6><span class="app-shimmer" style="width:70%;"></span></h6>
                 <p><span class="app-shimmer" style="width:50%;"></span></p>
@@ -374,8 +381,8 @@ function cardHtml(item: NewMemberItemDto): string {
     <div class="col-xl-2 col-lg-3 col-md-4 col-6">
       <div class="lab-item member-item style-1" data-app-user-id="${escapeHtml(item.userId)}">
         <a href="${href}" class="lab-inner" style="text-decoration:none;color:inherit;">
-          <div class="lab-thumb">
-            <img src="${avatar}" alt="${name}">
+          <div class="lab-thumb" style="${MEMBER_THUMB_BOX_STYLE}">
+            <img src="${avatar}" alt="${name}" style="${MEMBER_THUMB_IMG_STYLE}">
           </div>
           <div class="lab-content">
             <h6><span>${name}</span></h6>

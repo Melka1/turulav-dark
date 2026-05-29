@@ -12,7 +12,8 @@
     "msw:init": "msw init .. --save"
   },
   "dependencies": {
-    "@reduxjs/toolkit": "^2.2.5"
+    "@reduxjs/toolkit": "^2.2.5",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

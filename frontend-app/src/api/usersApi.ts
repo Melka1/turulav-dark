@@ -20,12 +20,6 @@ export const usersApi = api.injectEndpoints({
         unwrap(response),
       providesTags: (_result, _err, id) => [{ type: 'Users', id }],
     }),
-    presenceHeartbeat: build.mutation<void, void>({
-      query: () => ({ url: '/users/me/presence', method: 'POST' }),
-    }),
-    presenceOffline: build.mutation<void, void>({
-      query: () => ({ url: '/users/me/presence', method: 'DELETE' }),
-    }),
   }),
   overrideExisting: false,
 });

@@ -6,6 +6,7 @@ import { applyHeaderNav } from '@/lib/headerNav';
 import { applyPasswordToggles } from '@/lib/passwordToggle';
 import { mountToastContainer } from '@/lib/toast';
 import { startTokenRefreshScheduler } from '@/lib/tokenRefreshScheduler';
+import { startPresence } from '@/lib/presence';
 import { authApi } from '@/api/authApi';
 import { usersApi } from '@/api/usersApi';
 import { signedIn, signedOut, tokensRefreshed } from '@/slices/authSlice';
@@ -117,8 +118,7 @@ async function boot(): Promise<void> {
 
   await refreshIfExpired();
   startTokenRefreshScheduler();
-  // Presence heartbeat paused — too chatty. Re-enable when we throttle further.
-  // startPresenceHeartbeat();
+  startPresence();
 
   const page = readCurrentPage();
   console.info(`[boot] page="${page}" mode=${env.mode} mocks=${env.useMocks}`);

@@ -2,9 +2,9 @@
  * Shared filter logic for member-search forms. Used by:
  *  - members.html (.filter-form): applies the filter in-place
  *  - blog.html / blog-single.html / profile.html sidebars (.banner-form):
- *    redirects to /members.html with the chosen filters
+ *    redirects to /members?… with the chosen filters
  *  - index.html (.banner-form in .banner-section): a profession-flavoured
- *    variant, also redirects to /members.html
+ *    variant, also redirects to /members?…
  *
  * If the viewer is signed in we pre-fill the "I am" / "Looking for" / country
  * selects from their profile so they don't have to retype known preferences.
@@ -389,7 +389,11 @@ function isGender(value: string): value is Gender {
   );
 }
 
-const MEMBERS_PATH = '/members.html';
+// Vercel's `cleanUrls: true` and `serve`'s default cleanUrls both 308-redirect
+// `/members.html` → `/members`. Older `serve` versions drop the query string on
+// that hop, which lands the user on /members with no filters. Emit the clean
+// URL directly to skip the redirect entirely.
+const MEMBERS_PATH = '/members';
 
 export function buildMembersUrl(state: MemberFilterState): string {
   const params = filterStateToParams(state);
@@ -398,7 +402,7 @@ export function buildMembersUrl(state: MemberFilterState): string {
 }
 
 /**
- * Attach a submit handler that reads the form, builds /members.html?…, and
+ * Attach a submit handler that reads the form, builds /members?…, and
  * navigates. Used by every page except members.html itself.
  */
 export function bindRedirectFilter(
@@ -416,7 +420,7 @@ export function bindRedirectFilter(
  * Wire up every sidebar `Filter Search Member` widget on the current page:
  * pre-fill from the signed-in viewer's profile, hide the gender/seeking
  * selects when the profile already declares them (re-asking on every search
- * is noise), then redirect on submit to `/members.html?…`. Gender/seeking
+ * is noise), then redirect on submit to `/members?…`. Gender/seeking
  * are intentionally NOT carried in the URL when the profile already has them
  * — the members page backfills them from the same profile on arrival, so
  * including them in the query would just be redundant noise. Safe to call

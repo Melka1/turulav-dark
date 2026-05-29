@@ -20,7 +20,7 @@ const SHIMMER_STYLE_ID = 'app-home-shimmer-style';
 /**
  * The home page banner-form is profession-flavoured ("I am a Painter / Looking
  * for Photographer / City") and lives in `.banner-section`. It redirects to
- * /members.html with the chosen filters. Any sidebar widgets on the page reuse
+ * /members?… with the chosen filters. Any sidebar widgets on the page reuse
  * the standard gender-based redirect via bindSidebarMemberFilters().
  */
 const bindHome: PageBinder = async (ctx) => {

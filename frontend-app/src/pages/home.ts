@@ -30,11 +30,16 @@ const bindHome: PageBinder = async (ctx) => {
     'section.banner-section form.banner-form',
   );
   if (form) {
-    await prefillHomeProfession(ctx, form);
-    // The "I am a" select represents the viewer's own profession. For
-    // signed-in viewers the backend already has this from the session
-    // profile, so we drop it from the wire to avoid double-specifying.
-    // Guests must send it — the backend has no other source.
+    const viewerHasProfession = await prefillHomeProfession(ctx, form);
+    // The "I am a" select represents the viewer's own profession. When the
+    // signed-in viewer already has a profession on their profile, re-asking
+    // is noise — hide the row and drop it from the URL. Guests (and signed-in
+    // viewers without a profession) still see and submit the field, since the
+    // backend has no other source for it.
+    if (viewerHasProfession) {
+      const wrap = form.querySelector<HTMLElement>('.gender');
+      if (wrap) wrap.style.display = 'none';
+    }
     bindRedirectFilter(form, (f) => {
       const state = readHomeBannerForm(f);
       if (ctx.getState().auth.status === 'authenticated') {
@@ -51,25 +56,26 @@ const bindHome: PageBinder = async (ctx) => {
 async function prefillHomeProfession(
   ctx: PageContext,
   form: HTMLFormElement,
-): Promise<void> {
-  if (ctx.getState().auth.status !== 'authenticated') return;
+): Promise<boolean> {
+  if (ctx.getState().auth.status !== 'authenticated') return false;
   try {
     const me = await ctx
       .dispatch(usersApi.endpoints.getMe.initiate())
       .unwrap();
     const label = formatProfession(me.profile.profession);
-    if (!label) return;
+    if (!label) return false;
     const select = form.querySelector<HTMLSelectElement>('select#gender');
-    if (!select) return;
+    if (!select) return true;
     const target = label.trim().toLowerCase();
     for (let i = 0; i < select.options.length; i++) {
       if (select.options[i]!.text.trim().toLowerCase() === target) {
         select.selectedIndex = i;
-        return;
+        break;
       }
     }
+    return true;
   } catch {
-    // Best-effort; leave the form untouched on failure.
+    return false;
   }
 }
 

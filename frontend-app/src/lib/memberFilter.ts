@@ -416,9 +416,11 @@ export function bindRedirectFilter(
  * Wire up every sidebar `Filter Search Member` widget on the current page:
  * pre-fill from the signed-in viewer's profile, hide the gender/seeking
  * selects when the profile already declares them (re-asking on every search
- * is noise), then redirect on submit to `/members.html?…`. The redirect URL
- * still carries gender/seeking — they're backfilled from the profile when
- * the selects are hidden. Safe to call on pages that have no such widget.
+ * is noise), then redirect on submit to `/members.html?…`. Gender/seeking
+ * are intentionally NOT carried in the URL when the profile already has them
+ * — the members page backfills them from the same profile on arrival, so
+ * including them in the query would just be redundant noise. Safe to call
+ * on pages that have no such widget.
  */
 export async function bindSidebarMemberFilters(ctx: PageContext): Promise<void> {
   const forms = Array.from(
@@ -437,7 +439,7 @@ export async function bindSidebarMemberFilters(ctx: PageContext): Promise<void> 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const state = readSidebarFilterForm(form);
-      if (profile) applyProfileBackfill(state, profile);
+      if (profile) stripProfileDuplicates(state, profile);
       window.location.assign(buildMembersUrl(state));
     });
   }
@@ -457,17 +459,27 @@ function hidePrefilledGenderSeeking(
   }
 }
 
-function applyProfileBackfill(
+/**
+ * Drop gender/seeking from the redirect state when they would just duplicate
+ * the viewer's profile. The members page will re-derive these from the same
+ * profile, so emitting them on the URL adds noise without changing results.
+ * We only strip when the value MATCHES the profile — if the user explicitly
+ * picked something different in the form, that intent is preserved.
+ */
+function stripProfileDuplicates(
   state: MemberFilterState,
   profile: ProfileDto,
 ): void {
-  if (profile.gender && !state.gender) state.gender = profile.gender;
+  if (state.gender && profile.gender && state.gender === profile.gender) {
+    delete state.gender;
+  }
   if (
+    state.seeking &&
     Array.isArray(profile.seeking) &&
     profile.seeking.length > 0 &&
-    !state.seeking
+    state.seeking === profile.seeking.join(',')
   ) {
-    state.seeking = profile.seeking.join(',');
+    delete state.seeking;
   }
 }
 

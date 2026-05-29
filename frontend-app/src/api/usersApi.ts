@@ -20,6 +20,12 @@ export const usersApi = api.injectEndpoints({
         unwrap(response),
       providesTags: (_result, _err, id) => [{ type: 'Users', id }],
     }),
+    // Fired once at session start. The matching DELETE is sent via
+    // navigator.sendBeacon on tab close (so it survives unload), not through
+    // RTK Query — see src/lib/presence.ts.
+    presenceOnline: build.mutation<void, void>({
+      query: () => ({ url: '/users/me/presence', method: 'POST' }),
+    }),
   }),
   overrideExisting: false,
 });

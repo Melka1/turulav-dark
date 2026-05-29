@@ -681,6 +681,31 @@ export const handlers = [
     return ok(path, data);
   }),
 
+  http.post(url('/users/me/presence'), ({ request }) => {
+    const path = '/api/v1/users/me/presence';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const record = token ? findByAccessToken(token) : undefined;
+    if (!record) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+    record.user.isOnline = true;
+    record.user.lastActiveAt = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete(url('/users/me/presence'), ({ request }) => {
+    const path = '/api/v1/users/me/presence';
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const record = token ? findByAccessToken(token) : undefined;
+    if (!record) {
+      return nestError(401, 'UnauthorizedException', 'Unauthorized', path);
+    }
+    record.user.isOnline = false;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.get(url('/users/:id'), ({ params, request }) => {
     const id = String(params.id);
     const path = `/api/v1/users/${id}`;

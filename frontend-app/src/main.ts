@@ -7,7 +7,13 @@ import { applyPasswordToggles } from '@/lib/passwordToggle';
 import { mountToastContainer } from '@/lib/toast';
 import { startTokenRefreshScheduler } from '@/lib/tokenRefreshScheduler';
 import { authApi } from '@/api/authApi';
-import { signedOut, tokensRefreshed } from '@/slices/authSlice';
+import { usersApi } from '@/api/usersApi';
+import { signedIn, signedOut, tokensRefreshed } from '@/slices/authSlice';
+import {
+  clearAuthCallbackFromUrl,
+  readAuthCallback,
+  userIdFromJwt,
+} from '@/lib/authCallback';
 import '@/pages/binders';
 
 declare global {
@@ -50,6 +56,48 @@ async function refreshIfExpired(): Promise<void> {
   }
 }
 
+/**
+ * Supabase email-confirmation links redirect to the project's Site URL with
+ * the issued session in the URL hash. The Site URL is the bare origin
+ * (`https://turulav-dark.vercel.app/`), so the callback lands on whichever
+ * page happens to live at `/` — today that's home, tomorrow it could be
+ * anything. Process the callback here at boot, before any page binder runs,
+ * so the email confirmation flow works no matter where it lands.
+ */
+async function consumeAuthCallback(): Promise<boolean> {
+  const cb = readAuthCallback();
+  if (!cb) return false;
+
+  clearAuthCallbackFromUrl();
+
+  const userId = userIdFromJwt(cb.accessToken);
+  if (!userId) {
+    console.warn('[boot] auth callback present but JWT had no sub claim');
+    return false;
+  }
+
+  const expiresAt = new Date(Date.now() + cb.expiresIn * 1000).toISOString();
+  store.dispatch(
+    signedIn({
+      userId,
+      accessToken: cb.accessToken,
+      refreshToken: cb.refreshToken,
+      expiresAt,
+    }),
+  );
+
+  try {
+    await store.dispatch(usersApi.endpoints.getMe.initiate()).unwrap();
+    window.location.replace('/profile.html');
+    return true;
+  } catch (err) {
+    console.warn('[boot] /users/me failed after auth callback', err);
+    store.dispatch(signedOut());
+    window.location.replace('/login.html');
+    return true;
+  }
+}
+
 async function boot(): Promise<void> {
   if (env.useMocks) {
     const { startMocks } = await import('@/mocks/browser');
@@ -64,6 +112,8 @@ async function boot(): Promise<void> {
 
   mountToastContainer();
   neutralizeHashLinks();
+
+  if (await consumeAuthCallback()) return;
 
   await refreshIfExpired();
   startTokenRefreshScheduler();
